@@ -75,6 +75,31 @@ fn simple_hash(data: &[u8]) -> u64 {
     hash
 }
 
+// output memory content in a formatted hexadecimal view
+fn print_hex_dump(data: &[u8], base_addr: u64, label: &str) {
+    if data.is_empty() {
+        println!("    {}: <empty>", label);
+        return;
+    }
+    
+    println!("    {} ({} bytes):", label, data.len());
+    
+    // Display as hex in a nicely formatted way
+    for (i, byte) in data.iter().enumerate() {
+        if i % 16 == 0 {
+            print!("\n      {:08x}:  ", base_addr as usize + i);
+        }
+        print!("{:02x} ", byte);
+        
+        // Add an extra space after 8 bytes for better readability
+        if (i + 1) % 8 == 0 && (i + 1) % 16 != 0 {
+            print!(" ");
+        }
+    }
+    println!("\n");
+}
+
+
 fn main() -> Result<(), Box<dyn Error>> {
     // command line args: PID and interval
     let pid = std::env::args()
@@ -111,7 +136,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 for region in &executable_regions {
                     let sample_size =
-                        usize::min(4096, (region.end_addr - region.start_addr) as usize);
+                        usize::min(64, (region.end_addr - region.start_addr) as usize);
 
                     match read_memory(&pid, region.start_addr, sample_size) {
                         Ok(current_content) => {
@@ -129,7 +154,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                                         region.end_addr,
                                         region.path.as_deref().unwrap_or("[anonymous]")
                                     );
-                                }
+									
+									let display_size = usize::min(64, current_content.len());
+									println!("  New content (first {} bytes):", display_size);
+									
+									for (i, byte) in current_content.iter().take(display_size).enumerate() {
+										if i % 16 == 0 {
+											print!("\n    {:08x}:  ", region.start_addr as usize + i);
+										}
+										print!("{:02x} ", byte);
+									}
+									println!("\n");
+								}
 
                                 // check for size changes
                                 if *prev_size != region.end_addr - region.start_addr {
