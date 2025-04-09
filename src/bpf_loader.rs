@@ -1,11 +1,16 @@
-use anyhow::Result;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::path::Path;
+
+use anyhow::Result;
+use libbpf_rs::{MapFlags, ObjectBuilder, PerfBufferBuilder, MapCore};
 
 use crate::models::{EventType, MemoryEvent};
 
 pub struct BpfTracer {
-    _obj: Option<libbpf_rs::Object>,
+    obj: Option<libbpf_rs::Object>,
+	perf_buffer: Option<libbpf_rs::PerfBuffer<'static>>,
     event_tx: Sender<MemoryEvent>,
     target_pid: i32,
     running: bool,
@@ -16,7 +21,8 @@ impl BpfTracer {
         println!("Creating BPF tracer for PID: {}", target_pid);
 
         Ok(Self {
-            _obj: None,
+            obj: None,
+			perf_buffer: None,
             event_tx,
             target_pid,
             running: false,
@@ -28,14 +34,61 @@ impl BpfTracer {
 
         let bpf_file = "src/bpf/memory_tracer.bpf.o";
 
-        if std::path::Path::new(bpf_file).exists() {
-            println!("Found BPF program file: {}", bpf_file);
-
-            // TODO: load BPF program
-        } else {
-            println!("BPF program file not found, using mock implementation");
+		if !Path::new(bpf_file).exists() {
+            return Err(anyhow::anyhow!("BPF program file not found: {}", bpf_file));
         }
 
+		// 加载 BPF 对象
+        let mut obj = ObjectBuilder::default()
+            .open_file(bpf_file)?
+            .load()?;
+
+        // 获取需要的程序
+        for prog in obj.progs_mut() {
+            println!("Attaching program: {:?}", prog.name());
+            let _ = prog.attach()?;
+        }
+
+        // 创建包装的 event_tx 以便在回调中使用
+        let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
+        let target_pid = self.target_pid;
+
+		// 查找 events map
+        let mut events_map = None;
+        for map in obj.maps_mut() {
+            if map.name() == "events" {
+                events_map = Some(map);
+                break;
+            }
+        }
+        
+        let events = events_map.ok_or_else(|| anyhow::anyhow!("Failed to find events map"))?;
+
+        let perf_buffer = PerfBufferBuilder::new(&events)
+            .sample_cb(move |_cpu, data: &[u8]| {
+                if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
+                    // 解析原始事件
+                    let raw_event = unsafe { *(data.as_ptr() as *const RawMemoryEvent) };
+
+                    // 过滤掉不是目标进程的事件
+                    if raw_event.pid as i32 == target_pid {
+                        // 转换为 MemoryEvent
+                        let event = MemoryEvent::from(raw_event);
+
+                        // 发送事件
+                        if let Ok(tx) = event_tx.lock() {
+                            let _ = tx.send(event);
+                        }
+                    }
+                }
+            })
+            .lost_cb(|cpu, count| {
+                eprintln!("Lost {} events on CPU {}", count, cpu);
+            })
+            .build()?;
+
+        self.obj = Some(obj);
+        self.perf_buffer = Some(perf_buffer);
         self.running = true;
         Ok(())
     }
@@ -45,18 +98,9 @@ impl BpfTracer {
             return Ok(());
         }
 
-        std::thread::sleep(Duration::from_millis(timeout_ms as u64));
-
-        if self.running {
-            let event = MemoryEvent {
-                event_type: EventType::Map,
-                address: 0x12345000,
-                size: 4096,
-                timestamp: SystemTime::now(),
-                pid: self.target_pid,
-            };
-
-            let _ = self.event_tx.send(event);
+		// 轮询 perf 缓冲区获取事件
+        if let Some(perf_buffer) = &mut self.perf_buffer {
+            perf_buffer.poll(Duration::from_millis(timeout_ms as u64))?;
         }
 
         Ok(())
@@ -65,12 +109,14 @@ impl BpfTracer {
     pub fn stop(&mut self) -> Result<()> {
         println!("Stopping BPF tracer");
         self.running = false;
-        self._obj = None;
+		self.perf_buffer = None;
+        self.obj = None;
         Ok(())
     }
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 struct RawMemoryEvent {
     addr: u64,
     length: u64,
