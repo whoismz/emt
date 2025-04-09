@@ -18,4 +18,4 @@ cargo run --bin emt-cli -- --help
     -h, --help                   Print help information              Print help information
 
 # example
-cargo run --bin emt-cli -- --command "cargo run --example analyzer_diagnostic" --output ./trace_results --duration 5 --save-content
+cargo run --bin emt-cli -- --command "cargo run --example analyzer_diagnostic" --output ./output --duration 5 --save-content
