@@ -38,22 +38,19 @@ impl BpfTracer {
             return Err(anyhow::anyhow!("BPF program file not found: {}", bpf_file));
         }
 
-		// 加载 BPF 对象
+		// load BPF obj
         let mut obj = ObjectBuilder::default()
             .open_file(bpf_file)?
             .load()?;
 
-        // 获取需要的程序
         for prog in obj.progs_mut() {
             println!("Attaching program: {:?}", prog.name());
             let _ = prog.attach()?;
         }
 
-        // 创建包装的 event_tx 以便在回调中使用
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
         let target_pid = self.target_pid;
 
-		// 查找 events map
         let mut events_map = None;
         for map in obj.maps_mut() {
             if map.name() == "events" {
@@ -67,15 +64,13 @@ impl BpfTracer {
         let perf_buffer = PerfBufferBuilder::new(&events)
             .sample_cb(move |_cpu, data: &[u8]| {
                 if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
-                    // 解析原始事件
+                    // parse event
                     let raw_event = unsafe { *(data.as_ptr() as *const RawMemoryEvent) };
 
-                    // 过滤掉不是目标进程的事件
+                    // filter pid
                     if raw_event.pid as i32 == target_pid {
-                        // 转换为 MemoryEvent
                         let event = MemoryEvent::from(raw_event);
 
-                        // 发送事件
                         if let Ok(tx) = event_tx.lock() {
                             let _ = tx.send(event);
                         }
@@ -98,7 +93,6 @@ impl BpfTracer {
             return Ok(());
         }
 
-		// 轮询 perf 缓冲区获取事件
         if let Some(perf_buffer) = &mut self.perf_buffer {
             perf_buffer.poll(Duration::from_millis(timeout_ms as u64))?;
         }
