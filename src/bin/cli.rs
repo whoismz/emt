@@ -20,7 +20,7 @@ impl Cli {
 
         let mut pid = None;
         let mut command = None;
-        let mut output = PathBuf::from("./trace_output");
+        let mut output = PathBuf::from("./output");
         let mut save_content = false;
         let mut duration = 0;
 
@@ -61,7 +61,7 @@ impl Cli {
                     println!("  -p, --pid PID                Process ID to trace");
                     println!("  -c, --command COMMAND        Command to execute and trace");
                     println!(
-                        "  -o, --output DIR             Output directory for trace logs (default: ./trace_output)"
+                        "  -o, --output DIR             Output directory for trace logs (default: ./output)"
                     );
                     println!("  -s, --save-content           Save memory content");
                     println!(
