@@ -1,16 +1,16 @@
-use std::sync::mpsc::Sender;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::sync::{Arc, Mutex};
 use std::path::Path;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::Result;
-use libbpf_rs::{MapFlags, ObjectBuilder, PerfBufferBuilder, MapCore};
+use libbpf_rs::{MapCore, ObjectBuilder, PerfBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
 
 pub struct BpfTracer {
     obj: Option<libbpf_rs::Object>,
-	perf_buffer: Option<libbpf_rs::PerfBuffer<'static>>,
+    perf_buffer: Option<libbpf_rs::PerfBuffer<'static>>,
     event_tx: Sender<MemoryEvent>,
     target_pid: i32,
     running: bool,
@@ -22,7 +22,7 @@ impl BpfTracer {
 
         Ok(Self {
             obj: None,
-			perf_buffer: None,
+            perf_buffer: None,
             event_tx,
             target_pid,
             running: false,
@@ -34,18 +34,30 @@ impl BpfTracer {
 
         let bpf_file = "src/bpf/memory_tracer.bpf.o";
 
-		if !Path::new(bpf_file).exists() {
+        if !Path::new(bpf_file).exists() {
             return Err(anyhow::anyhow!("BPF program file not found: {}", bpf_file));
         }
 
-		// load BPF obj
-        let mut obj = ObjectBuilder::default()
-            .open_file(bpf_file)?
-            .load()?;
+        // load BPF obj
+        let mut obj = ObjectBuilder::default().open_file(bpf_file)?.load()?;
 
         for prog in obj.progs_mut() {
+            let name = prog.name().to_str().unwrap_or_default();
+
             println!("Attaching program: {:?}", prog.name());
-            let _ = prog.attach()?;
+
+            // Match known tracepoint names
+            let attach_res = match name {
+                "trace_mmap" => prog.attach_tracepoint("syscalls", "sys_enter_mmap"),
+                "trace_munmap" => prog.attach_tracepoint("syscalls", "sys_enter_munmap"),
+                "trace_mprotect" => prog.attach_tracepoint("syscalls", "sys_enter_mprotect"),
+                _ => {
+                    eprintln!("Unknown program name: {:?}", name);
+                    continue;
+                }
+            };
+
+            let _ = attach_res?;
         }
 
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
@@ -58,11 +70,13 @@ impl BpfTracer {
                 break;
             }
         }
-        
+
         let events = events_map.ok_or_else(|| anyhow::anyhow!("Failed to find events map"))?;
 
         let perf_buffer = PerfBufferBuilder::new(&events)
-            .sample_cb(move |_cpu, data: &[u8]| {
+            .sample_cb(move |cpu, data: &[u8]| {
+                println!("Received data from CPU {}, size: {} bytes", cpu, data.len());
+
                 if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
                     // parse event
                     let raw_event = unsafe { *(data.as_ptr() as *const RawMemoryEvent) };
@@ -89,12 +103,22 @@ impl BpfTracer {
     }
 
     pub fn poll(&mut self, timeout_ms: i32) -> Result<()> {
-        if !self.running {
+		if !self.running {
             return Ok(());
         }
 
         if let Some(perf_buffer) = &mut self.perf_buffer {
-            perf_buffer.poll(Duration::from_millis(timeout_ms as u64))?;
+            match perf_buffer.poll(Duration::from_millis(timeout_ms as u64)) {
+                Ok(_) => {
+                    println!("Poll succseeful");
+                }
+                Err(e) => {
+                    eprintln!("Poll error: {:?}", e);
+                    return Err(anyhow::anyhow!("Failed to poll: {}", e));
+                }
+            }
+        } else {
+            return Err(anyhow::anyhow!("BPF tracer not properly initialized"));
         }
 
         Ok(())
@@ -103,7 +127,7 @@ impl BpfTracer {
     pub fn stop(&mut self) -> Result<()> {
         println!("Stopping BPF tracer");
         self.running = false;
-		self.perf_buffer = None;
+        self.perf_buffer = None;
         self.obj = None;
         Ok(())
     }
