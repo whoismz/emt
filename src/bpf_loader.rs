@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use libbpf_rs::{MapCore, ObjectBuilder, PerfBufferBuilder};
@@ -120,6 +120,20 @@ impl BpfTracer {
         } else {
             return Err(anyhow::anyhow!("BPF tracer not properly initialized"));
         }
+
+		/*
+		if self.running {
+            let event = MemoryEvent {
+                event_type: EventType::Unmap,
+                address: 0x12345000,
+                size: 4096,
+                timestamp: SystemTime::now(),
+                pid: self.target_pid,
+            };
+
+            let _ = self.event_tx.send(event);
+        }
+		*/
 
         Ok(())
     }

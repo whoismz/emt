@@ -13,12 +13,22 @@ struct memory_event {
     __u64 timestamp;
 };
 
+struct sys_enter_mmap_args {
+	char _[16];
+	unsigned long addr;
+	unsigned long len;
+	unsigned long prot;
+	unsigned long flags;
+	unsigned long fd;
+	unsigned long off;
+};
+
 // perf event map
 struct {
     __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 	__uint(key_size, sizeof(int));
     __uint(value_size, sizeof(int));
-    __uint(max_entries, 1024);
+    // __uint(max_entries, 1024);
 } events SEC(".maps");
 
 struct trace_event_raw_sys_enter {
@@ -29,17 +39,17 @@ struct trace_event_raw_sys_enter {
 
 // mmap
 SEC("tracepoint/syscalls/sys_enter_mmap")
-int trace_mmap(struct trace_event_raw_sys_enter *ctx)
+int trace_mmap(struct sys_enter_mmap_args *ctx)
 {
-    __u64 prot = ctx->args[2];
+    __u64 prot = ctx->prot;
     //if (!(prot & PROT_EXEC))
     //    return 0;
 
 	bpf_printk("mmap called: prot=0x%x", (int)prot);
 
     struct memory_event event = {};
-    event.addr = ctx->args[0];
-    event.length = ctx->args[1];
+    event.addr = ctx->addr;
+    event.length = ctx->len;
     event.pid = bpf_get_current_pid_tgid() >> 32;
     event.event_type = 0;
     event.timestamp = bpf_ktime_get_ns();
@@ -85,4 +95,3 @@ int trace_munmap(struct trace_event_raw_sys_enter *ctx)
 }
 
 char LICENSE[] SEC("license") = "GPL";
-

@@ -177,7 +177,7 @@ impl MemoryTracer {
         let mut running = true;
         while running {
             // poll BPF events
-            if let Err(e) = bpf_tracer.poll(5000 /* ms */) {
+            if let Err(e) = bpf_tracer.poll(100 /* ms */) {
                 eprintln!("Error polling BPF events: {:?}", e);
             }
 
