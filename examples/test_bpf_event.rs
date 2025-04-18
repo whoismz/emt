@@ -10,7 +10,7 @@ use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
     let pid = std::process::id() as i32;
-    println!("EMT BPF Event Test - PID: {}", pid);
+    println!("BPF Event Test - PID: {}", pid);
     println!("This program will verify if the BPF tracer can correctly capture memory events");
 
     // Create channel and tracer
@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
 
     for i in 1..=15 {
         println!("Poll #{} (waiting 1 second)...", i);
-        match tracer.poll(1000) {
+        match tracer.poll(2000) {
             Ok(_) => {}
             Err(e) => println!("Polling error: {}", e),
         }

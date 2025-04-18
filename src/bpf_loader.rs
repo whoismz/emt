@@ -39,7 +39,19 @@ impl BpfTracer {
         }
 
         // load BPF obj
-        let mut obj = ObjectBuilder::default().open_file(bpf_file)?.load()?;
+        let mut obj = match ObjectBuilder::default().open_file(bpf_file) {
+            Ok(builder) => match builder.load() {
+                Ok(obj) => obj,
+                Err(e) => {
+                    eprintln!("Failed to load BPF object: {}", e);
+                    return Err(anyhow::anyhow!("Failed to load BPF object: {}", e));
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to open BPF file: {}", e);
+                return Err(anyhow::anyhow!("Failed to open BPF file: {}", e));
+            }
+        };
 
         for prog in obj.progs_mut() {
             let name = prog.name().to_str().unwrap_or_default();
@@ -57,7 +69,13 @@ impl BpfTracer {
                 }
             };
 
-            let _ = attach_res?;
+            match attach_res {
+                Ok(_) => println!("Successfully attached program: {}", name),
+                Err(e) => {
+                    eprintln!("Failed to attach program {}: {}", name, e);
+                    //return Err(anyhow::anyhow!("Failed to attach program {}: {}", name, e));
+                }
+            }
         }
 
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
@@ -75,6 +93,7 @@ impl BpfTracer {
 
         let perf_buffer = PerfBufferBuilder::new(&events)
             .sample_cb(move |cpu, data: &[u8]| {
+                println!("TEST");
                 println!("Received data from CPU {}, size: {} bytes", cpu, data.len());
 
                 if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
@@ -103,14 +122,14 @@ impl BpfTracer {
     }
 
     pub fn poll(&mut self, timeout_ms: i32) -> Result<()> {
-		if !self.running {
+        if !self.running {
             return Ok(());
         }
 
         if let Some(perf_buffer) = &mut self.perf_buffer {
             match perf_buffer.poll(Duration::from_millis(timeout_ms as u64)) {
                 Ok(_) => {
-                    println!("Poll succseeful");
+                    // println!("Poll succseeful");
                 }
                 Err(e) => {
                     eprintln!("Poll error: {:?}", e);
@@ -121,8 +140,8 @@ impl BpfTracer {
             return Err(anyhow::anyhow!("BPF tracer not properly initialized"));
         }
 
-		/*
-		if self.running {
+        /*
+        if self.running {
             let event = MemoryEvent {
                 event_type: EventType::Unmap,
                 address: 0x12345000,
@@ -133,7 +152,7 @@ impl BpfTracer {
 
             let _ = self.event_tx.send(event);
         }
-		*/
+        */
 
         Ok(())
     }
@@ -147,7 +166,7 @@ impl BpfTracer {
     }
 }
 
-#[repr(C)]
+#[repr(C, align(8))]
 #[derive(Copy, Clone)]
 struct RawMemoryEvent {
     addr: u64,
