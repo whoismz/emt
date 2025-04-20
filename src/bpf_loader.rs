@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
-use libbpf_rs::{Link, MapCore, ObjectBuilder, PerfBufferBuilder};
+use libbpf_rs::{MapCore, ObjectBuilder, PerfBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
 
@@ -88,9 +88,9 @@ impl BpfTracer {
         let events = events_map.ok_or_else(|| anyhow::anyhow!("Failed to find events map"))?;
 
         let perf_buffer = PerfBufferBuilder::new(&events)
-            .sample_cb(move |cpu, data: &[u8]| {
+            .sample_cb(move |_cpu, data: &[u8]| {
                 if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
-                    // println!("Received data from CPU {}, size: {} bytes", cpu, data.len());
+                    // println!("Received data from CPU {}, size: {} bytes", _cpu, data.len());
 
                     // parse event
                     let raw_event =
