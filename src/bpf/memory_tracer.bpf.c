@@ -1,7 +1,6 @@
-#include <linux/bpf.h>
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
-#include <linux/ptrace.h>
-#include <linux/types.h>
+#include <bpf/bpf_tracing.h>
 
 #define PROT_EXEC 0x4
 
@@ -68,11 +67,11 @@ SEC("tracepoint/syscalls/sys_enter_mmap")
 int trace_mmap(struct sys_enter_mmap_args *ctx)
 {
     __u64 prot = ctx->prot;
-    //if (!(prot & PROT_EXEC))
-    //    return 0;
+    if (!(prot & PROT_EXEC))
+        return 0;
 
 
-	bpf_printk("mmap called");
+	bpf_printk("mmap called!!");
     struct memory_event event = {};
     event.addr = ctx->addr;
     event.length = ctx->len;
@@ -80,8 +79,16 @@ int trace_mmap(struct sys_enter_mmap_args *ctx)
     event.event_type = 0;
     event.timestamp = bpf_ktime_get_ns();
 
+    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    return 0;
+
+    /*
+    __u64 pid = bpf_get_current_pid_tgid() >> 32;
+    __u64 addr = ctx->args[0];
+    __u64 prot = ctx->args[2];
+
     struct memory_event event_test = {
-            .addr = 0x1234,
+            .addr = 0,
             .length = 4096,
             .pid = bpf_get_current_pid_tgid() >> 32,
             .event_type = 0,
@@ -89,16 +96,20 @@ int trace_mmap(struct sys_enter_mmap_args *ctx)
         };
 
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event_test, sizeof(event_test));
+
+    bpf_printk("PID %lld called mmap(addr=0x%llx, prot=0x%llx)", pid, addr, prot);
     return 0;
+    */
 }
+
 
 // mprotect
 SEC("tracepoint/syscalls/sys_enter_mprotect")
 int trace_mprotect(struct sys_enter_mprotect_args *ctx)
 {
     __u64 prot = ctx->prot;
-    //if (!(prot & PROT_EXEC))
-    //    return 0;
+    if (!(prot & PROT_EXEC))
+        return 0;
 
 	bpf_printk("mprotect called");
 

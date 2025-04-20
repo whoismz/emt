@@ -1,11 +1,10 @@
-// test_memory_changes.rs
+use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
 use std::slice;
 use std::thread;
 use std::time::Duration;
 
-// Required for memory allocation with executable permissions
 unsafe extern "C" {
     fn mmap(
         addr: *mut libc::c_void,
@@ -15,45 +14,40 @@ unsafe extern "C" {
         fd: libc::c_int,
         offset: libc::off_t,
     ) -> *mut libc::c_void;
+
     fn munmap(addr: *mut libc::c_void, len: libc::size_t) -> libc::c_int;
 }
 
 fn main() {
-    println!("Process ID: {}", process::id());
-    println!("Start the memory monitor now with this PID.");
-    println!("Waiting 5 seconds before starting memory operations...");
-    println!("This program will run continuously until manually terminated (Ctrl+C).");
-    thread::sleep(Duration::from_secs(5));
+    println!("[INFO] PID: {}", process::id());
+    println!("[INFO] Start the memory monitor now using this PID.");
+    println!("[INFO] Press Enter to begin memory operations...");
+
+    let _ = io::stdin().lock().lines().next();
+
+    println!("[INFO] Starting memory mutation loop...");
 
     let mut cycle_count = 0;
-
     loop {
         cycle_count += 1;
-        println!("\n[TEST] Starting cycle #{}", cycle_count);
+        println!("\n[INFO] === Cycle #{} ===", cycle_count);
 
-        // Define a simple machine code function (x86_64)
-        let initial_code: [u8; 8] = [
-            0xB8, 0x2A, 0x00, 0x00, 0x00, // mov eax, 42
-            0xC3, // ret
-            0x90, 0x90, // nop, nop (padding)
-        ];
+        // x86_64: mov eax, 42; ret; nop; nop
+        let initial_code: [u8; 8] = [0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3, 0x90, 0x90];
 
-        // Allocate executable memory
-        let size = 4096; // Page size
+        let size = 4096;
         let prot = libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
-
         let exec_mem = unsafe { mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
 
         if exec_mem == libc::MAP_FAILED {
-            eprintln!("mmap failed!");
+            eprintln!("[WARN] mmap failed, retrying...");
             thread::sleep(Duration::from_secs(1));
             continue;
         }
 
-        println!("[TEST] Allocated executable memory at: {:p}", exec_mem);
+        println!("[INFO] Allocated memory at: {:p}", exec_mem);
 
-        // Copy initial code to the executable memory
         unsafe {
             ptr::copy_nonoverlapping(
                 initial_code.as_ptr(),
@@ -62,32 +56,31 @@ fn main() {
             );
         }
 
-        // Sleep to allow the monitor to detect the new region
-        println!("[TEST] Executable memory initialized, sleeping for 2 seconds...");
+        println!("[INFO] Written initial code: {:02X?}", &initial_code);
         thread::sleep(Duration::from_secs(2));
 
-        // Modify the code multiple times
-        for i in 1..4 {
-            println!("[TEST] Modifying executable memory (change #{})...", i);
+        for i in 1..=3 {
+            let new_val = 0x2A + i * 10;
+            println!(
+                "[INFO] Modifying return value: mov eax, {} (0x{:X})",
+                new_val, new_val
+            );
+
             unsafe {
                 let mem_slice = slice::from_raw_parts_mut(exec_mem as *mut u8, size);
-                // Change the return value
-                mem_slice[1] = (0x2A + i * 10) as u8; // 42 -> 52 -> 62 -> 72
+                mem_slice[1] = new_val as u8;
+                println!("[INFO] Current code bytes: {:02X?}", &mem_slice[..8]);
             }
 
-            // Sleep to allow the monitor to detect the change
-            println!("[TEST] Memory modified, sleeping for 2 seconds...");
             thread::sleep(Duration::from_secs(2));
         }
 
-        // Free the memory
-        println!("[TEST] Freeing executable memory...");
+        println!("[INFO] Freeing memory at {:p}", exec_mem);
         unsafe {
             munmap(exec_mem, size);
         }
 
-        // Sleep before starting next cycle
-        println!("[TEST] Cycle completed, sleeping for 2 seconds before next cycle...");
+        println!("[INFO] Cycle complete. Sleeping 2s before next iteration...");
         thread::sleep(Duration::from_secs(2));
     }
 }
