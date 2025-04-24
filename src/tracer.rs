@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use nix::time::{ClockId, clock_gettime};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::bpf_loader::BpfTracer;
 use crate::memory_analyzer::MemoryAnalyzer;
@@ -112,7 +113,7 @@ impl MemoryTracer {
 
         writeln!(
             log_file,
-            "BPFTimestamp, DeamonTimestamp, EventType, Address, Size, File"
+            "ID, BPFTimestamp, DeamonTimestamp, EventType, Address, Size, File"
         )
         .context("Failed to write log header")?;
 
@@ -155,8 +156,8 @@ impl MemoryTracer {
 
                     writeln!(
                         log_file,
-                        "{}, {}, Initial, {:x}, {}, {}",
-                        "-", "-", page.address, page.size, source_file
+                        "{}, {}, {}, Initial, {:x}, {}, {}",
+                        "-", "-", "-", page.address, page.size, source_file
                     )?;
 
                     known_pages.insert(page.address, page);
@@ -170,6 +171,8 @@ impl MemoryTracer {
         log_file.flush()?;
 
         bpf_tracer.start()?;
+
+        static EVENT_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
         // main loop for events from BPF
         let mut running = true;
@@ -192,9 +195,11 @@ impl MemoryTracer {
                     continue;
                 }
 
+                let event_id = EVENT_COUNTER.fetch_add(1, Ordering::SeqCst);
+
                 println!(
-                    "Received memory event: type={:?}, addr={:x}, size={}",
-                    event.event_type, event.address, event.size
+                    "Received memory event (ID: {}): type={:?}, addr={:x}, size={}",
+                    event_id, event.event_type, event.address, event.size
                 );
 
                 match event.event_type {
@@ -265,7 +270,8 @@ impl MemoryTracer {
 
                                         writeln!(
                                             log_file,
-                                            "{}, {}, {}, {:x}, {}, {}",
+                                            "{}, {}, {}, {}, {:x}, {}, {}",
+                                            event_id,
                                             ebpf_timestamp,
                                             daemon_timestamp,
                                             event_type,
@@ -318,8 +324,13 @@ impl MemoryTracer {
 
                                 if let Err(e) = writeln!(
                                     log_file,
-                                    "{}, {}, Unmap, {:x}, {}, {}",
-                                    ebpf_timestamp, daemon_timestamp, addr, page.size, source_file
+                                    "{}, {}, {}, Unmap, {:x}, {}, {}",
+                                    event_id,
+                                    ebpf_timestamp,
+                                    daemon_timestamp,
+                                    addr,
+                                    page.size,
+                                    source_file
                                 ) {
                                     eprintln!("Failed to write unmap log: {}", e);
                                 }
