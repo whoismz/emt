@@ -4,9 +4,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use nix::time::{ClockId, clock_gettime};
 
 use crate::bpf_loader::BpfTracer;
 use crate::memory_analyzer::MemoryAnalyzer;
@@ -73,11 +74,11 @@ impl MemoryTracer {
         // notify tracer thread to stop
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(MemoryEvent {
-                event_type: EventType::Unmap, // use this as a stop signal
+                event_type: EventType::Unmap,
                 address: 0,
                 size: 0,
                 timestamp: SystemTime::now(),
-                pid: -1, // mark with -1 to indicate stop signal
+                pid: -1,
             });
         }
 
@@ -109,8 +110,11 @@ impl MemoryTracer {
         let log_path = output_dir.join(format!("memory_trace_{}.log", target_pid));
         let mut log_file = File::create(&log_path).context("Failed to create log file")?;
 
-        writeln!(log_file, "Time,EventType,Address,Size,SourceFile")
-            .context("Failed to write log header")?;
+        writeln!(
+            log_file,
+            "BPFTimestamp, DeamonTimestamp, EventType, Address, Size, File"
+        )
+        .context("Failed to write log header")?;
 
         println!(
             "Analyzing initial executable memory pages for PID: {}",
@@ -138,13 +142,6 @@ impl MemoryTracer {
                         }
                     }
 
-                    // log
-                    let timestamp = page
-                        .timestamp
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-
                     let source_file = page
                         .source_file
                         .as_ref()
@@ -158,8 +155,8 @@ impl MemoryTracer {
 
                     writeln!(
                         log_file,
-                        "{},Initial,{:x},{},{}",
-                        timestamp, page.address, page.size, source_file
+                        "{}, {}, Initial, {:x}, {}, {}",
+                        "-", "-", page.address, page.size, source_file
                     )?;
 
                     known_pages.insert(page.address, page);
@@ -243,12 +240,16 @@ impl MemoryTracer {
                                             }
                                         }
 
-                                        // log
-                                        let timestamp = event
+                                        let ebpf_timestamp = event
                                             .timestamp
                                             .duration_since(UNIX_EPOCH)
                                             .unwrap_or_default()
-                                            .as_secs();
+                                            .as_nanos();
+
+                                        let daemon_timestamp = Duration::from(clock_gettime(
+                                            ClockId::CLOCK_MONOTONIC,
+                                        )?)
+                                        .as_nanos();
 
                                         let source_file = page
                                             .source_file
@@ -264,8 +265,9 @@ impl MemoryTracer {
 
                                         writeln!(
                                             log_file,
-                                            "{},{},{:x},{},{}",
-                                            timestamp,
+                                            "{}, {}, {}, {:x}, {}, {}",
+                                            ebpf_timestamp,
+                                            daemon_timestamp,
                                             event_type,
                                             page.address,
                                             page.size,
@@ -282,24 +284,31 @@ impl MemoryTracer {
                     }
                     EventType::Unmap => {
                         let mut to_remove = Vec::new();
+                        let unmap_start = event.address;
+                        let unmap_end = event.address + event.size;
 
                         for (addr, page) in &known_pages {
-                            if *addr >= event.address
-                                && *addr + page.size <= event.address + event.size
-                            {
+                            let page_start = *addr;
+                            let page_end = *addr + page.size;
+
+                            // 检查页面与unmap区域是否有重叠
+                            if page_start < unmap_end && page_end > unmap_start {
                                 to_remove.push(*addr);
 
                                 println!(
-                                    "Unmapped executable page detected: addr={:x}, size={}",
+                                    "Unmapped executable page detected (partial/full): addr={:x}, size={}",
                                     addr, page.size
                                 );
 
-                                // log
-                                let timestamp = event
+                                let ebpf_timestamp = event
                                     .timestamp
                                     .duration_since(UNIX_EPOCH)
                                     .unwrap_or_default()
-                                    .as_secs();
+                                    .as_nanos();
+
+                                let daemon_timestamp =
+                                    Duration::from(clock_gettime(ClockId::CLOCK_MONOTONIC)?)
+                                        .as_nanos();
 
                                 let source_file = page
                                     .source_file
@@ -307,13 +316,17 @@ impl MemoryTracer {
                                     .map(|p| p.to_string_lossy().to_string())
                                     .unwrap_or_else(|| "Unknown".to_string());
 
-                                writeln!(
+                                if let Err(e) = writeln!(
                                     log_file,
-                                    "{},Unmap,{:x},{},{}",
-                                    timestamp, addr, page.size, source_file
-                                )?;
+                                    "{}, {}, Unmap, {:x}, {}, {}",
+                                    ebpf_timestamp, daemon_timestamp, addr, page.size, source_file
+                                ) {
+                                    eprintln!("Failed to write unmap log: {}", e);
+                                }
 
-                                log_file.flush()?;
+                                if let Err(e) = log_file.flush() {
+                                    eprintln!("Failed to flush log file: {}", e);
+                                }
                             }
                         }
 
