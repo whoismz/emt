@@ -1,4 +1,3 @@
-use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -6,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result};
 
 use crate::bpf_loader::BpfTracer;
 use crate::memory_analyzer::MemoryAnalyzer;
@@ -183,6 +184,8 @@ impl MemoryTracer {
 
             // check for received memory events
             while let Ok(event) = event_rx.try_recv() {
+                println!("event pid: {}\ntarget pid: {}", event.pid, target_pid);
+
                 if event.pid == -1 {
                     running = false;
                     break;

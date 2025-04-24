@@ -1,7 +1,8 @@
-use anyhow::{Context, Result};
-use procfs::process::{MMapPath, Process};
 use std::path::PathBuf;
 use std::time::SystemTime;
+
+use anyhow::{Context, Result};
+use procfs::process::{MMapPath, Process};
 
 use crate::models::ExecutablePage;
 

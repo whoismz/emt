@@ -1,9 +1,11 @@
+use rand::Rng;
+
 use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
 use std::slice;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 unsafe extern "C" {
     fn mmap(
@@ -35,10 +37,18 @@ fn main() {
         // x86_64: mov eax, 42; ret; nop; nop
         let initial_code: [u8; 8] = [0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3, 0x90, 0x90];
 
-        let size = 4096;
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos() as usize;
+
+        let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
+        let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
+
+        let size = 4096 + cycle_count * 100;
         let prot = libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
-        let exec_mem = unsafe { mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
+        let exec_mem = unsafe { mmap(aligned_addr, size, prot, flags, -1, 0) };
 
         if exec_mem == libc::MAP_FAILED {
             eprintln!("[WARN] mmap failed, retrying...");

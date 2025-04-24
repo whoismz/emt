@@ -11,6 +11,7 @@ libbpf-rs = "=0.25.0-beta.1"
 libc = "0.2.171"
 nix = "0.29.0"
 procfs = "0.17.0"
+rand = "0.9.1"
 thiserror = "2.0.12"
 
 [[bin]]
