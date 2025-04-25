@@ -184,8 +184,6 @@ impl MemoryTracer {
 
             // check for received memory events
             while let Ok(event) = event_rx.try_recv() {
-                println!("event pid: {}\ntarget pid: {}", event.pid, target_pid);
-
                 if event.pid == -1 {
                     running = false;
                     break;
@@ -297,7 +295,6 @@ impl MemoryTracer {
                             let page_start = *addr;
                             let page_end = *addr + page.size;
 
-                            // 检查页面与unmap区域是否有重叠
                             if page_start < unmap_end && page_end > unmap_start {
                                 to_remove.push(*addr);
 

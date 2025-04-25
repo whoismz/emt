@@ -59,8 +59,11 @@ impl BpfTracer {
             println!("Attaching program: {}", name);
 
             let _link = match name {
-                "trace_mmap" => prog
+                "trace_enter_mmap" => prog
                     .attach_tracepoint("syscalls", "sys_enter_mmap")
+                    .map_err(|e| anyhow!("Failed to attach mmap: {}", e))?,
+                "trace_exit_mmap" => prog
+                    .attach_tracepoint("syscalls", "sys_exit_mmap")
                     .map_err(|e| anyhow!("Failed to attach mmap: {}", e))?,
                 "trace_munmap" => prog
                     .attach_tracepoint("syscalls", "sys_enter_munmap")
