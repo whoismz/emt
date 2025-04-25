@@ -36,62 +36,24 @@ struct {
     __uint(value_size, sizeof(int));
 } events SEC(".maps");
 
-struct common_header {
-    unsigned short common_type;
-    unsigned char common_flags;
-    unsigned char common_preempt_count;
-    int common_pid;
-};
-
-struct sys_enter_mmap_args {
-	struct common_header header;
-	int __syscall_nr;
-    unsigned long addr;
-    unsigned long len;
-    unsigned long prot;
-    unsigned long flags;
-    unsigned long fd;
-    unsigned long offset;
-};
-
-struct sys_exit_mmap_args {
-	struct common_header header;
-	int __syscall_nr;
-	long ret;
-};
-
-struct sys_enter_mprotect_args {
-    struct common_header header;
-	int __syscall_nr;
-	unsigned long start;
-	unsigned long len;
-	unsigned long prot;
-};
-
-struct sys_enter_munmap_args {
-    struct common_header header;
-	int __syscall_nr;
-	unsigned long addr;
-	unsigned long len;
-};
 
 SEC("tracepoint/syscalls/sys_enter_mmap")
-int trace_enter_mmap(struct sys_enter_mmap_args *ctx)
+int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx)
 {
     bpf_printk("enter_mmap called");
 
-    __u64 prot = ctx->prot;
+    __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC)) return 0;
 
     __u64 key = bpf_get_current_pid_tgid();
 
     struct mmap_args_t args = {
-            .addr = ctx->addr,
-            .length = ctx->len,
-            .prot = ctx->prot,
-            .flags = ctx->flags,
-            .fd = ctx->fd,
-            .offset = ctx->offset,
+            .addr = ctx->args[0],
+            .length = ctx->args[1],
+            .prot = ctx->args[2],
+            .flags = ctx->args[3],
+            .fd = ctx->args[4],
+            .offset = ctx->args[5],
             .timestamp = bpf_ktime_get_ns()
     };
 
@@ -100,14 +62,14 @@ int trace_enter_mmap(struct sys_enter_mmap_args *ctx)
 }
 
 SEC("tracepoint/syscalls/sys_exit_mmap")
-int trace_exit_mmap(struct sys_exit_mmap_args *ctx)
+int trace_exit_mmap(struct trace_event_raw_sys_enter *ctx)
 {
     bpf_printk("exit_mmap called");
 
     __u64 key = bpf_get_current_pid_tgid();
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    long ret = ctx->ret;
+    long ret = ctx->args[0];
 
     if (ret < 0) {
             bpf_map_delete_elem(&mmap_args, &key);
@@ -130,36 +92,38 @@ int trace_exit_mmap(struct sys_exit_mmap_args *ctx)
 }
 
 SEC("tracepoint/syscalls/sys_enter_mprotect")
-int trace_mprotect(struct sys_enter_mprotect_args *ctx)
+int trace_mprotect(struct trace_event_raw_sys_enter *ctx)
 {
-    __u64 prot = ctx->prot;
+    __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC))
         return 0;
 
 	bpf_printk("mprotect called");
 
-    struct memory_event event = {};
-    event.addr = ctx->start;
-    event.length = ctx->len;
-    event.pid = bpf_get_current_pid_tgid() >> 32;
-    event.event_type = 2;
-    event.timestamp = bpf_ktime_get_ns();
+    struct memory_event event = {
+        .addr = ctx->args[0],
+        .length = ctx->args[1],
+        .pid = bpf_get_current_pid_tgid() >> 32,
+        .event_type = 2,
+        .timestamp = bpf_ktime_get_ns()
+    };
 
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
     return 0;
 }
 
 SEC("tracepoint/syscalls/sys_enter_munmap")
-int trace_munmap(struct sys_enter_munmap_args *ctx)
+int trace_munmap(struct trace_event_raw_sys_enter *ctx)
 {
 	bpf_printk("unmmap called");
 
-	struct memory_event event = {};
-    event.addr = ctx->addr;
-    event.length = ctx->len;
-    event.pid = bpf_get_current_pid_tgid() >> 32;
-    event.event_type = 1;
-    event.timestamp = bpf_ktime_get_ns();
+	struct memory_event event = {
+        .addr = ctx->args[0],
+        .length = ctx->args[1],
+        .pid = bpf_get_current_pid_tgid() >> 32,
+        .event_type = 1,
+        .timestamp = bpf_ktime_get_ns()
+	};
 
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
     return 0;
