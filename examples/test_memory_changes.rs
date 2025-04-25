@@ -45,7 +45,7 @@ fn main() {
         let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
         let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
 
-        let size = 4096 + cycle_count * 100;
+        let size = 8192 + cycle_count * 100;
         let prot = libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
         let exec_mem = unsafe { mmap(aligned_addr, size, prot, flags, -1, 0) };

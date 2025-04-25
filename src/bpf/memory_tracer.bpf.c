@@ -10,7 +10,7 @@ struct memory_event {
     __u32 pid;
     __u32 event_type;
     __u64 timestamp;
-};
+} __attribute__((packed));
 
 struct mmap_args_t {
     __u64 addr;
@@ -20,7 +20,7 @@ struct mmap_args_t {
     __u64 fd;
     __u64 offset;
     __u64 timestamp;
-};
+} __attribute__((packed));
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -38,9 +38,8 @@ struct {
 
 
 SEC("tracepoint/syscalls/sys_enter_mmap")
-int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx)
-{
-    bpf_printk("enter_mmap called");
+int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
+    // bpf_printk("enter_mmap called");
 
     __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC)) return 0;
@@ -48,13 +47,13 @@ int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx)
     __u64 key = bpf_get_current_pid_tgid();
 
     struct mmap_args_t args = {
-            .addr = ctx->args[0],
-            .length = ctx->args[1],
-            .prot = ctx->args[2],
-            .flags = ctx->args[3],
-            .fd = ctx->args[4],
-            .offset = ctx->args[5],
-            .timestamp = bpf_ktime_get_ns()
+        .addr = ctx->args[0],
+        .length = ctx->args[1],
+        .prot = ctx->args[2],
+        .flags = ctx->args[3],
+        .fd = ctx->args[4],
+        .offset = ctx->args[5],
+        .timestamp = bpf_ktime_get_ns()
     };
 
     bpf_map_update_elem(&mmap_args, &key, &args, BPF_ANY);
@@ -62,14 +61,13 @@ int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("tracepoint/syscalls/sys_exit_mmap")
-int trace_exit_mmap(struct trace_event_raw_sys_enter *ctx)
-{
-    bpf_printk("exit_mmap called");
+int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
+    // bpf_printk("exit_mmap called");
 
     __u64 key = bpf_get_current_pid_tgid();
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    long ret = ctx->args[0];
+    long ret = ctx->ret;
 
     if (ret < 0) {
             bpf_map_delete_elem(&mmap_args, &key);
@@ -88,17 +86,17 @@ int trace_exit_mmap(struct trace_event_raw_sys_enter *ctx)
     };
 
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    bpf_map_delete_elem(&mmap_args, &key);
     return 0;
 }
 
 SEC("tracepoint/syscalls/sys_enter_mprotect")
-int trace_mprotect(struct trace_event_raw_sys_enter *ctx)
-{
+int trace_mprotect(struct trace_event_raw_sys_enter *ctx) {
+    // bpf_printk("mprotect called");
+
     __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC))
         return 0;
-
-	bpf_printk("mprotect called");
 
     struct memory_event event = {
         .addr = ctx->args[0],
@@ -113,9 +111,8 @@ int trace_mprotect(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("tracepoint/syscalls/sys_enter_munmap")
-int trace_munmap(struct trace_event_raw_sys_enter *ctx)
-{
-	bpf_printk("unmmap called");
+int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
+	// bpf_printk("unmmap called");
 
 	struct memory_event event = {
         .addr = ctx->args[0],
