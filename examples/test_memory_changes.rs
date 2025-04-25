@@ -1,5 +1,4 @@
 use rand::Rng;
-
 use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
@@ -18,6 +17,8 @@ unsafe extern "C" {
     ) -> *mut libc::c_void;
 
     fn munmap(addr: *mut libc::c_void, len: libc::size_t) -> libc::c_int;
+
+    fn mprotect(addr: *mut libc::c_void, len: libc::size_t, prot: libc::c_int) -> libc::c_int;
 }
 
 fn main() {
@@ -65,11 +66,41 @@ fn main() {
                 initial_code.len(),
             );
         }
-
         println!("[INFO] Written initial code: {:02X?}", &initial_code);
+
+        println!("[INFO] Changing memory protection to READ | EXECUTE (drop WRITE)");
+        let new_prot = libc::PROT_READ | libc::PROT_EXEC;
+        let ret = unsafe { mprotect(exec_mem, size, new_prot) };
+        if ret != 0 {
+            eprintln!(
+                "[ERROR] mprotect failed with errno {}",
+                io::Error::last_os_error()
+            );
+            unsafe {
+                munmap(exec_mem, size);
+            }
+            break;
+        }
+
         thread::sleep(Duration::from_secs(2));
 
         for i in 1..=3 {
+            println!("[INFO] Changing memory protection back to READ | WRITE | EXECUTE");
+            let ret = unsafe {
+                mprotect(
+                    exec_mem,
+                    size,
+                    libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
+                )
+            };
+            if ret != 0 {
+                eprintln!(
+                    "[ERROR] mprotect (restore) failed with errno {}",
+                    io::Error::last_os_error()
+                );
+                break;
+            }
+
             let new_val = 0x2A + i * 10;
             println!(
                 "[INFO] Modifying return value: mov eax, {} (0x{:X})",
@@ -80,6 +111,16 @@ fn main() {
                 let mem_slice = slice::from_raw_parts_mut(exec_mem as *mut u8, size);
                 mem_slice[1] = new_val as u8;
                 println!("[INFO] Current code bytes: {:02X?}", &mem_slice[..8]);
+            }
+
+            println!("[INFO] Changing memory protection back to READ | EXECUTE (drop WRITE)");
+            let ret = unsafe { mprotect(exec_mem, size, libc::PROT_READ | libc::PROT_EXEC) };
+            if ret != 0 {
+                eprintln!(
+                    "[ERROR] mprotect (drop write) failed with errno {}",
+                    io::Error::last_os_error()
+                );
+                break;
             }
 
             thread::sleep(Duration::from_secs(2));

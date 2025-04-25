@@ -61,16 +61,19 @@ impl BpfTracer {
             let _link = match name {
                 "trace_enter_mmap" => prog
                     .attach_tracepoint("syscalls", "sys_enter_mmap")
-                    .map_err(|e| anyhow!("Failed to attach mmap: {}", e))?,
+                    .map_err(|e| anyhow!("Failed to attach sys_enter_mmap: {}", e))?,
                 "trace_exit_mmap" => prog
                     .attach_tracepoint("syscalls", "sys_exit_mmap")
-                    .map_err(|e| anyhow!("Failed to attach mmap: {}", e))?,
+                    .map_err(|e| anyhow!("Failed to attach sys_exit_mmap: {}", e))?,
                 "trace_munmap" => prog
                     .attach_tracepoint("syscalls", "sys_enter_munmap")
                     .map_err(|e| anyhow!("Failed to attach munmap: {}", e))?,
-                "trace_mprotect" => prog
+                "trace_enter_mprotect" => prog
                     .attach_tracepoint("syscalls", "sys_enter_mprotect")
-                    .map_err(|e| anyhow!("Failed to attach mprotect: {}", e))?,
+                    .map_err(|e| anyhow!("Failed to attach sys_enter_mprotect: {}", e))?,
+                "trace_exit_mprotect" => prog
+                    .attach_tracepoint("syscalls", "sys_exit_mprotect")
+                    .map_err(|e| anyhow!("Failed to attach sys_exit_mprotect: {}", e))?,
                 _ => continue,
             };
 
