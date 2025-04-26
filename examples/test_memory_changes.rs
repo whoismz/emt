@@ -46,7 +46,7 @@ fn main() {
         let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
         let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
 
-        let size = 8192 + cycle_count * 100;
+        let size = 2048 + cycle_count * 100;
         let prot = libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
         let exec_mem = unsafe { mmap(aligned_addr, size, prot, flags, -1, 0) };
@@ -83,48 +83,6 @@ fn main() {
         }
 
         thread::sleep(Duration::from_secs(2));
-
-        for i in 1..=3 {
-            println!("[INFO] Changing memory protection back to READ | WRITE | EXECUTE");
-            let ret = unsafe {
-                mprotect(
-                    exec_mem,
-                    size,
-                    libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
-                )
-            };
-            if ret != 0 {
-                eprintln!(
-                    "[ERROR] mprotect (restore) failed with errno {}",
-                    io::Error::last_os_error()
-                );
-                break;
-            }
-
-            let new_val = 0x2A + i * 10;
-            println!(
-                "[INFO] Modifying return value: mov eax, {} (0x{:X})",
-                new_val, new_val
-            );
-
-            unsafe {
-                let mem_slice = slice::from_raw_parts_mut(exec_mem as *mut u8, size);
-                mem_slice[1] = new_val as u8;
-                println!("[INFO] Current code bytes: {:02X?}", &mem_slice[..8]);
-            }
-
-            println!("[INFO] Changing memory protection back to READ | EXECUTE (drop WRITE)");
-            let ret = unsafe { mprotect(exec_mem, size, libc::PROT_READ | libc::PROT_EXEC) };
-            if ret != 0 {
-                eprintln!(
-                    "[ERROR] mprotect (drop write) failed with errno {}",
-                    io::Error::last_os_error()
-                );
-                break;
-            }
-
-            thread::sleep(Duration::from_secs(2));
-        }
 
         println!("[INFO] Freeing memory at {:p}", exec_mem);
         unsafe {

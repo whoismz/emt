@@ -94,6 +94,46 @@ impl MemoryTracer {
         Ok(())
     }
 
+    fn print_memory_content(content: &[u8], address: usize) {
+        println!("Memory content at 0x{:x}:", address);
+
+        const BYTES_PER_ROW: usize = 16;
+        for (i, chunk) in content.chunks(BYTES_PER_ROW).enumerate() {
+            print!("0x{:08x}: ", address + i * BYTES_PER_ROW);
+
+            for (j, byte) in chunk.iter().enumerate() {
+                print!("{:02x} ", byte);
+                if j == 7 {
+                    print!(" ");
+                }
+            }
+
+            if chunk.len() < BYTES_PER_ROW {
+                let spaces =
+                    (BYTES_PER_ROW - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
+                for _ in 0..spaces {
+                    print!(" ");
+                }
+            }
+
+            print!(" | ");
+            for &byte in chunk {
+                if byte >= 32 && byte <= 126 {
+                    print!("{}", byte as char);
+                } else {
+                    print!(".");
+                }
+            }
+            println!();
+
+            if i >= 15 {
+                println!("... (showing only first 16 lines)");
+                break;
+            }
+        }
+        println!();
+    }
+
     fn run_tracer(
         target_pid: i32,
         event_tx: Sender<MemoryEvent>,
@@ -140,6 +180,8 @@ impl MemoryTracer {
                             if let Err(e) = std::fs::write(&content_path, content) {
                                 eprintln!("Failed to write memory content: {:?}", e);
                             }
+
+                            Self::print_memory_content(content, page.address);
                         }
                     }
 
@@ -202,7 +244,6 @@ impl MemoryTracer {
 
                 match event.event_type {
                     EventType::Map | EventType::ProtectionChange => {
-                        // new executable memory or permission change
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
                             for mut page in pages {
                                 if page.address <= event.address
@@ -240,6 +281,8 @@ impl MemoryTracer {
                                                         e
                                                     );
                                                 }
+
+                                                Self::print_memory_content(content, page.address);
                                             }
                                         }
 
@@ -346,7 +389,6 @@ impl MemoryTracer {
             }
         }
 
-        // stop BPF tracer
         bpf_tracer.stop()?;
 
         println!(
