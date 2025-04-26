@@ -242,6 +242,7 @@ impl MemoryTracer {
                     event_id, event.event_type, event.address, event.size
                 );
 
+                // TODO: there is some bugs...
                 match event.event_type {
                     EventType::Map | EventType::ProtectionChange => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
@@ -341,10 +342,12 @@ impl MemoryTracer {
                             if page_start < unmap_end && page_end > unmap_start {
                                 to_remove.push(*addr);
 
+                                /*
                                 println!(
                                     "Unmapped executable page detected (partial/full): addr={:x}, size={}",
                                     addr, page.size
                                 );
+                                */
 
                                 let ebpf_timestamp = event
                                     .timestamp

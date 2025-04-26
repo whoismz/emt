@@ -41,6 +41,19 @@ struct {
     __type(value, struct mprotect_args_t);
 } mprotect_args SEC(".maps");
 
+struct execve_args_t {
+    __u64 filename_ptr;
+    __u64 argv_ptr;
+    __u64 envp_ptr;
+} __attribute__((packed));
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, __u64);
+    __type(value, struct execve_args_t);
+} execve_args SEC(".maps");
+
 // perf map for communication from kernel to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
@@ -163,6 +176,46 @@ int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
 	};
 
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_execve")
+int trace_enter_execve(struct trace_event_raw_sys_enter *ctx) {
+    __u64 key = bpf_get_current_pid_tgid();
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    struct execve_args_t args = {
+        .filename_ptr = ctx->args[0],
+        .argv_ptr = ctx->args[1],
+        .envp_ptr = ctx->args[2]
+    };
+
+    bpf_map_update_elem(&execve_args, &key, &args, BPF_ANY);
+
+    struct memory_event event = {
+        .addr = 0,
+        .length = 0,
+        .pid = pid,
+        .event_type = 3,
+        .timestamp = bpf_ktime_get_ns()
+    };
+
+    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    return 0;
+}
+
+// if execve works, then this tracepoint will not be called
+SEC("tracepoint/syscalls/sys_exit_execve")
+int trace_exit_execve(struct trace_event_raw_sys_exit *ctx) {
+    __u64 key = bpf_get_current_pid_tgid();
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    long ret = ctx->ret;
+
+    if (ret < 0) {
+        bpf_map_delete_elem(&execve_args, &key);
+    }
+
     return 0;
 }
 
