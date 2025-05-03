@@ -20,7 +20,7 @@ pub struct MemoryEvent {
     pub pid: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EventType {
     Map,
     Unmap,

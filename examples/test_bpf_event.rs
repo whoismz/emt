@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
     let (tx, rx) = channel();
     let mut tracer = BpfRuntime::new(tx, pid)?;
 
-    if tracer.start().is_err() {
+    if tracer.start("./src/bpf/memory_tracer.bpf.o").is_err() {
         println!("[ERR] Failed to start tracer");
         return Ok(());
     }
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let mut total_events = 0;
 
     for _ in 0..15 {
-        tracer.poll(2000).ok();
+        tracer.poll(Duration::from_millis(100)).ok();
 
         while let Ok(event) = rx.try_recv() {
             total_events += 1;

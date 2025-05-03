@@ -1,8 +1,6 @@
-use rand::Rng;
 use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
-use std::slice;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

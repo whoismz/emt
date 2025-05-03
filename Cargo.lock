@@ -116,6 +116,7 @@ dependencies = [
  "ctrlc",
  "libbpf-rs",
  "libc",
+ "log",
  "nix",
  "procfs",
  "rand",

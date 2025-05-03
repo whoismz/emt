@@ -141,7 +141,7 @@ impl MemoryTracer {
         output_dir: PathBuf,
         save_content: bool,
     ) -> Result<()> {
-        let mut bpf_tracer = BpfRuntime::new(event_tx.clone(), target_pid)?;
+        let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let memory_analyzer = MemoryAnalyzer::new(target_pid);
 
         // record currently known executable memory pages
@@ -153,7 +153,7 @@ impl MemoryTracer {
 
         writeln!(
             log_file,
-            "ID, BPFTimestamp, DeamonTimestamp, EventType, Address, Size, File"
+            "ID, BPFTimestamp, DaemonTimestamp, EventType, Address, Size, File"
         )
         .context("Failed to write log header")?;
 
@@ -212,7 +212,7 @@ impl MemoryTracer {
 
         log_file.flush()?;
 
-        bpf_tracer.start()?;
+        bpf_runtime.start("./src/bpf/memory_tracer.bpf.o")?;
 
         static EVENT_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
@@ -220,7 +220,7 @@ impl MemoryTracer {
         let mut running = true;
         while running {
             // poll BPF events
-            if let Err(e) = bpf_tracer.poll(100 /* ms */) {
+            if let Err(e) = bpf_runtime.poll(Duration::from_millis(100)) {
                 eprintln!("Error polling BPF events: {:?}", e);
             }
 
@@ -392,7 +392,7 @@ impl MemoryTracer {
             }
         }
 
-        bpf_tracer.stop()?;
+        bpf_runtime.stop()?;
 
         println!(
             "Memory tracer stopped. Logged {} executable pages.",

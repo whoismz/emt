@@ -1,4 +1,3 @@
-// examples/analyzer_diagnostic.rs
 use emt::MemoryAnalyzer;
 use std::env;
 

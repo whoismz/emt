@@ -3,88 +3,65 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
-use libbpf_rs::{MapCore, ObjectBuilder, PerfBufferBuilder};
+use anyhow::{Result, anyhow, Context};
+use libbpf_rs::{MapCore, Object, ObjectBuilder, PerfBuffer, PerfBufferBuilder, Link};
 
 use crate::models::{EventType, MemoryEvent};
 
+/// Manages the BPF program lifecycle including loading, attaching, and event processing
 pub struct BpfRuntime {
-    obj: Option<libbpf_rs::Object>,
-    perf_buffer: Option<libbpf_rs::PerfBuffer<'static>>,
-    links: Vec<libbpf_rs::Link>,
+    bpf_object: Option<Object>,
+    perf_buffer: Option<PerfBuffer<'static>>,
+    probe_links: Vec<Link>,
     event_tx: Sender<MemoryEvent>,
     target_pid: i32,
-    running: bool,
+    is_active: bool,
 }
 
-impl BpfRuntime {
-    pub fn new(event_tx: Sender<MemoryEvent>, target_pid: i32) -> Result<Self> {
-        println!("[PID] {}", target_pid);
 
+impl BpfRuntime {
+    /// Creates a new BPF runtime instance
+    ///
+    /// # Arguments
+    /// * `event_tx` - Channel sender for memory events
+    /// * `target_pid` - PID of the process to monitor
+    pub fn new(event_tx: Sender<MemoryEvent>, target_pid: i32) -> Result<Self> {
         Ok(Self {
-            obj: None,
+            bpf_object: None,
             perf_buffer: None,
-            links: Vec::new(),
+            probe_links: Vec::new(),
             event_tx,
             target_pid,
-            running: false,
+            is_active: false,
         })
     }
 
-    pub fn start(&mut self) -> Result<()> {
-        let bpf_file = "src/bpf/memory_tracer.bpf.o";
-
-        if !Path::new(bpf_file).exists() {
-            return Err(anyhow::anyhow!("BPF program file not found: {}", bpf_file));
+    pub fn start(&mut self, bpf_path: impl AsRef<Path>) -> Result<()> {
+        if self.is_active {
+            return Ok(());
         }
 
-        // load
-        let mut obj = match ObjectBuilder::default().open_file(bpf_file) {
-            Ok(builder) => match builder.load() {
-                Ok(obj) => obj,
-                Err(e) => {
-                    eprintln!("Failed to load BPF object: {}", e);
-                    return Err(anyhow::anyhow!("Failed to load BPF object: {}", e));
-                }
-            },
-            Err(e) => {
-                eprintln!("Failed to open BPF file: {}", e);
-                return Err(anyhow::anyhow!("Failed to open BPF file: {}", e));
-            }
-        };
+        let bpf_path = bpf_path.as_ref();
+        if !bpf_path.exists() {
+            return Err(anyhow!("BPF program not found at {}", bpf_path.display()));
+        }
+
+        // load bpf object
+        let mut bpf_object = ObjectBuilder::default()
+            .open_file(bpf_path)
+            .context("Failed to open BPF object file")?
+            .load()
+            .context("Failed to load BPF object")?;
 
         // attach
-        for prog in obj.progs_mut() {
-            let name = prog.name().to_str().unwrap_or_default();
-            println!("Attaching program: {}", name);
-
-            let _link = match name {
-                "trace_enter_mmap" => prog
-                    .attach_tracepoint("syscalls", "sys_enter_mmap")
-                    .map_err(|e| anyhow!("Failed to attach sys_enter_mmap: {}", e))?,
-                "trace_exit_mmap" => prog
-                    .attach_tracepoint("syscalls", "sys_exit_mmap")
-                    .map_err(|e| anyhow!("Failed to attach sys_exit_mmap: {}", e))?,
-                "trace_munmap" => prog
-                    .attach_tracepoint("syscalls", "sys_enter_munmap")
-                    .map_err(|e| anyhow!("Failed to attach munmap: {}", e))?,
-                "trace_enter_mprotect" => prog
-                    .attach_tracepoint("syscalls", "sys_enter_mprotect")
-                    .map_err(|e| anyhow!("Failed to attach sys_enter_mprotect: {}", e))?,
-                "trace_exit_mprotect" => prog
-                    .attach_tracepoint("syscalls", "sys_exit_mprotect")
-                    .map_err(|e| anyhow!("Failed to attach sys_exit_mprotect: {}", e))?,
-                _ => continue,
-            };
-
-            self.links.push(_link);
-        }
+        self.attach_probes(&mut bpf_object)?;
 
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
         let target_pid = self.target_pid;
 
+        // TODO: organize this part
         let mut events_map = None;
-        for map in obj.maps_mut() {
+        for map in bpf_object.maps_mut() {
             if map.name() == "events" {
                 events_map = Some(map);
                 break;
@@ -96,8 +73,6 @@ impl BpfRuntime {
         let perf_buffer = PerfBufferBuilder::new(&events)
             .sample_cb(move |_cpu, data: &[u8]| {
                 if data.len() >= size_of::<RawMemoryEvent>() {
-                    // println!("Received data from CPU {}, size: {} bytes", _cpu, data.len());
-
                     // parse event
                     let raw_event =
                         unsafe { std::ptr::read_unaligned(data.as_ptr() as *const RawMemoryEvent) };
@@ -117,45 +92,65 @@ impl BpfRuntime {
             })
             .build()?;
 
-        self.obj = Some(obj);
+        self.bpf_object = Some(bpf_object);
         self.perf_buffer = Some(perf_buffer);
-        self.running = true;
+        self.is_active = true;
         Ok(())
     }
 
-    pub fn poll(&mut self, timeout_ms: i32) -> Result<()> {
-        if !self.running {
+    /// Attaches all BPF programs to their respective tracepoints
+    fn attach_probes(&mut self, bpf_object: &mut Object) -> Result<()> {
+        const TRACEPOINTS: &[(&str, &str, &str)] = &[
+            ("trace_enter_mmap", "syscalls", "sys_enter_mmap"),
+            ("trace_exit_mmap", "syscalls", "sys_exit_mmap"),
+            ("trace_munmap", "syscalls", "sys_enter_munmap"),
+            ("trace_enter_mprotect", "syscalls", "sys_enter_mprotect"),
+            ("trace_exit_mprotect", "syscalls", "sys_exit_mprotect"),
+        ];
+
+        for prog in bpf_object.progs_mut() {
+            let prog_name = prog.name().to_str().unwrap_or_default();
+
+            if let Some((_, subsystem, tracepoint)) = TRACEPOINTS.iter()
+                .find(|(name, _, _)| *name == prog_name)
+            {
+                let link = prog.attach_tracepoint(subsystem, tracepoint)
+                    .with_context(|| format!("Failed to attach {prog_name}"))?;
+                self.probe_links.push(link);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn poll(&mut self, timeout: Duration) -> Result<()> {
+        if !self.is_active {
             return Ok(());
         }
 
-        if let Some(perf_buffer) = &mut self.perf_buffer {
-            match perf_buffer.poll(Duration::from_millis(timeout_ms as u64)) {
-                Ok(_) => {
-                    // println!("Poll successful");
-                }
-                Err(e) => {
-                    eprintln!("Poll error: {:?}", e);
-                    return Err(anyhow::anyhow!("Failed to poll: {}", e));
-                }
-            }
-        } else {
-            return Err(anyhow::anyhow!("BPF tracer not properly initialized"));
-        }
-
-        Ok(())
+        self.perf_buffer
+            .as_mut()
+            .ok_or(anyhow!("Perf buffer not initialized"))?
+            .poll(timeout)
+            .context("Failed to poll events")
     }
 
     pub fn stop(&mut self) -> Result<()> {
         println!("Stopping BPF tracer");
-        self.running = false;
+        self.is_active = false;
         self.perf_buffer = None;
-        self.obj = None;
+        self.bpf_object = None;
         Ok(())
     }
 }
 
+impl Drop for BpfRuntime {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct RawMemoryEvent {
     addr: u64,
     length: u64,
@@ -180,5 +175,79 @@ impl From<RawMemoryEvent> for MemoryEvent {
             timestamp: UNIX_EPOCH + Duration::from_nanos(raw.timestamp),
             pid: raw.pid as i32,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    // Mock BPF program path for testing
+
+    #[test]
+    fn test_new_bpf_runtime() {
+        let (tx, _rx) = mpsc::channel();
+        let runtime = BpfRuntime::new(tx, 1234).unwrap();
+
+        assert!(!runtime.is_active);
+        assert_eq!(runtime.target_pid, 1234);
+    }
+
+    #[test]
+    fn test_start_stop() {
+        let (tx, _rx) = mpsc::channel();
+        let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
+
+        // Should fail with non-existent BPF file
+        assert!(runtime.start("nonexistent.bpf.o").is_err());
+
+        // Real test would need a mock BPF object here
+        // For now we just verify the state transitions
+        runtime.is_active = true;
+        runtime.stop().unwrap();
+        assert!(!runtime.is_active);
+    }
+
+    #[test]
+    fn test_raw_event_conversion() {
+        let raw = RawMemoryEvent {
+            addr: 0x1000,
+            length: 4096,
+            pid: 1234,
+            event_type: 1, // Unmap
+            timestamp: 1_000_000_000, // 1 second in ns
+        };
+
+        let event: MemoryEvent = raw.into();
+
+        assert_eq!(event.event_type, EventType::Unmap);
+        assert_eq!(event.address, 0x1000);
+        assert_eq!(event.size, 4096);
+        assert_eq!(event.pid, 1234);
+        assert_eq!(event.timestamp, UNIX_EPOCH + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_drop_impl() {
+        let (tx, _rx) = mpsc::channel();
+        let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
+        runtime.is_active = true;
+
+        // Trigger drop
+        drop(runtime);
+
+        // Can't assert directly, but should clean up resources
+    }
+
+    // Integration test would require:
+    // 1. A mock BPF program that generates test events
+    // 2. Actual eBPF environment to load it
+    // This is more complex and typically done separately
+
+    #[test]
+    fn test_event_processing() {
+        // This would test the full pipeline with a mock BPF program
+        // Skipped here as it requires more setup
     }
 }
