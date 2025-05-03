@@ -3,8 +3,8 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow, Context};
-use libbpf_rs::{MapCore, Object, ObjectBuilder, PerfBuffer, PerfBufferBuilder, Link};
+use anyhow::{Context, Result, anyhow};
+use libbpf_rs::{Link, MapCore, Object, ObjectBuilder, PerfBuffer, PerfBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
 
@@ -17,7 +17,6 @@ pub struct BpfRuntime {
     target_pid: i32,
     is_active: bool,
 }
-
 
 impl BpfRuntime {
     /// Creates a new BPF runtime instance
@@ -59,7 +58,7 @@ impl BpfRuntime {
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
         let target_pid = self.target_pid;
 
-        // TODO: organize this part
+        // TODO: organize the perf_buffer part
         let mut events_map = None;
         for map in bpf_object.maps_mut() {
             if map.name() == "events" {
@@ -111,10 +110,11 @@ impl BpfRuntime {
         for prog in bpf_object.progs_mut() {
             let prog_name = prog.name().to_str().unwrap_or_default();
 
-            if let Some((_, subsystem, tracepoint)) = TRACEPOINTS.iter()
-                .find(|(name, _, _)| *name == prog_name)
+            if let Some((_, subsystem, tracepoint)) =
+                TRACEPOINTS.iter().find(|(name, _, _)| *name == prog_name)
             {
-                let link = prog.attach_tracepoint(subsystem, tracepoint)
+                let link = prog
+                    .attach_tracepoint(subsystem, tracepoint)
                     .with_context(|| format!("Failed to attach {prog_name}"))?;
                 self.probe_links.push(link);
             }
@@ -135,10 +135,10 @@ impl BpfRuntime {
     }
 
     pub fn stop(&mut self) -> Result<()> {
-        println!("Stopping BPF tracer");
         self.is_active = false;
-        self.perf_buffer = None;
-        self.bpf_object = None;
+        self.perf_buffer.take();
+        self.bpf_object.take();
+        self.probe_links.clear();
         Ok(())
     }
 }
@@ -183,8 +183,6 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    // Mock BPF program path for testing
-
     #[test]
     fn test_new_bpf_runtime() {
         let (tx, _rx) = mpsc::channel();
@@ -199,11 +197,8 @@ mod tests {
         let (tx, _rx) = mpsc::channel();
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
 
-        // Should fail with non-existent BPF file
         assert!(runtime.start("nonexistent.bpf.o").is_err());
 
-        // Real test would need a mock BPF object here
-        // For now we just verify the state transitions
         runtime.is_active = true;
         runtime.stop().unwrap();
         assert!(!runtime.is_active);
@@ -215,7 +210,7 @@ mod tests {
             addr: 0x1000,
             length: 4096,
             pid: 1234,
-            event_type: 1, // Unmap
+            event_type: 1,            // Unmap
             timestamp: 1_000_000_000, // 1 second in ns
         };
 
@@ -234,20 +229,6 @@ mod tests {
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
         runtime.is_active = true;
 
-        // Trigger drop
         drop(runtime);
-
-        // Can't assert directly, but should clean up resources
-    }
-
-    // Integration test would require:
-    // 1. A mock BPF program that generates test events
-    // 2. Actual eBPF environment to load it
-    // This is more complex and typically done separately
-
-    #[test]
-    fn test_event_processing() {
-        // This would test the full pipeline with a mock BPF program
-        // Skipped here as it requires more setup
     }
 }
