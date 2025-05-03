@@ -1,9 +1,9 @@
-mod bpf_loader;
+mod bpf_runtime;
 mod memory_analyzer;
 mod models;
 mod tracer;
 
-pub use bpf_loader::BpfTracer;
+pub use bpf_runtime::BpfRuntime;
 pub use memory_analyzer::MemoryAnalyzer;
 pub use models::{EventType, ExecutablePage, MemoryEvent};
 pub use tracer::MemoryTracer;

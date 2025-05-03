@@ -1,7 +1,7 @@
 extern crate emt;
 extern crate libc;
 
-use emt::BpfTracer;
+use emt::BpfRuntime;
 use std::ptr;
 use std::sync::mpsc::channel;
 use std::thread;
@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
     println!("[PID] {}", pid);
 
     let (tx, rx) = channel();
-    let mut tracer = BpfTracer::new(tx, pid)?;
+    let mut tracer = BpfRuntime::new(tx, pid)?;
 
     if tracer.start().is_err() {
         println!("[ERR] Failed to start tracer");

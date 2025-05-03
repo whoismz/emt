@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use nix::time::{ClockId, clock_gettime};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::bpf_loader::BpfTracer;
+use crate::bpf_runtime::BpfRuntime;
 use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{EventType, ExecutablePage, MemoryEvent};
 
@@ -141,7 +141,7 @@ impl MemoryTracer {
         output_dir: PathBuf,
         save_content: bool,
     ) -> Result<()> {
-        let mut bpf_tracer = BpfTracer::new(event_tx.clone(), target_pid)?;
+        let mut bpf_tracer = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let memory_analyzer = MemoryAnalyzer::new(target_pid);
 
         // record currently known executable memory pages

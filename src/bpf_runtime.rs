@@ -8,7 +8,7 @@ use libbpf_rs::{MapCore, ObjectBuilder, PerfBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
 
-pub struct BpfTracer {
+pub struct BpfRuntime {
     obj: Option<libbpf_rs::Object>,
     perf_buffer: Option<libbpf_rs::PerfBuffer<'static>>,
     links: Vec<libbpf_rs::Link>,
@@ -17,7 +17,7 @@ pub struct BpfTracer {
     running: bool,
 }
 
-impl BpfTracer {
+impl BpfRuntime {
     pub fn new(event_tx: Sender<MemoryEvent>, target_pid: i32) -> Result<Self> {
         println!("[PID] {}", target_pid);
 
@@ -95,7 +95,7 @@ impl BpfTracer {
 
         let perf_buffer = PerfBufferBuilder::new(&events)
             .sample_cb(move |_cpu, data: &[u8]| {
-                if data.len() >= std::mem::size_of::<RawMemoryEvent>() {
+                if data.len() >= size_of::<RawMemoryEvent>() {
                     // println!("Received data from CPU {}, size: {} bytes", _cpu, data.len());
 
                     // parse event
@@ -131,7 +131,7 @@ impl BpfTracer {
         if let Some(perf_buffer) = &mut self.perf_buffer {
             match perf_buffer.poll(Duration::from_millis(timeout_ms as u64)) {
                 Ok(_) => {
-                    // println!("Poll succseeful");
+                    // println!("Poll successful");
                 }
                 Err(e) => {
                     eprintln!("Poll error: {:?}", e);

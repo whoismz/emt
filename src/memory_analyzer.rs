@@ -27,13 +27,6 @@ impl MemoryAnalyzer {
             let perms_str = format!("{:?}", map.perms);
 
             if perms_str.contains("EXECUTE") {
-                /*
-                println!(
-                    "DEBUG: Found executable page at {:x}-{:x}",
-                    map.address.0, map.address.1
-                );
-                */
-
                 let source_file = match &map.pathname {
                     MMapPath::Path(path) => Some(PathBuf::from(path)),
                     _ => None,
