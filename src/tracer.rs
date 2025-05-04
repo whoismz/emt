@@ -27,7 +27,6 @@ impl MemoryTracer {
     pub fn new(target_pid: i32, output_dir: impl AsRef<Path>, save_content: bool) -> Self {
         let output_dir = output_dir.as_ref().to_path_buf();
 
-        // Create output directory
         std::fs::create_dir_all(&output_dir).expect("Failed to create output directory");
 
         Self {
@@ -54,9 +53,7 @@ impl MemoryTracer {
         let save_content = self.save_content;
 
         let thread_handle = thread::spawn(move || {
-            if let Err(e) =
-                Self::run_tracer(target_pid, event_tx, event_rx, output_dir, save_content)
-            {
+            if let Err(e) = Self::run(target_pid, event_tx, event_rx, output_dir, save_content) {
                 eprintln!("Tracer error: {:?}", e);
             }
         });
@@ -134,7 +131,7 @@ impl MemoryTracer {
         println!();
     }
 
-    fn run_tracer(
+    fn run(
         target_pid: i32,
         event_tx: Sender<MemoryEvent>,
         event_rx: Receiver<MemoryEvent>,
@@ -247,16 +244,27 @@ impl MemoryTracer {
                     EventType::Map | EventType::ProtectionChange => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
                             for mut page in pages {
-                                if page.address <= event.address
-                                    && page.address + page.size >= event.address + event.size
-                                {
-                                    if !known_pages.contains_key(&page.address)
-                                        || known_pages[&page.address].protection_flags
-                                            != page.protection_flags
-                                    {
+                                let page_end = page.address + page.size;
+                                let event_end = event.address + event.size;
+
+                                if page.address < event_end && page_end > event.address {
+                                    let is_new_page = !known_pages.contains_key(&page.address);
+                                    let is_modified = !is_new_page
+                                        && known_pages[&page.address].protection_flags
+                                            != page.protection_flags;
+
+                                    if is_new_page {
+                                        println!("new page prot: {}", page.protection_flags);
+                                    } else {
+                                        println!("old prot: {}, new prot: {}", known_pages[&page.address].protection_flags, page.protection_flags);
+                                    }
+
+                                    if is_new_page || is_modified {
                                         println!(
-                                            "New or modified executable page detected: addr={:x}, size={}",
-                                            page.address, page.size
+                                            "{} executable page detected: addr={:x}, size={}",
+                                            if is_new_page { "New" } else { "Modified" },
+                                            page.address,
+                                            page.size
                                         );
 
                                         if save_content {
@@ -265,15 +273,16 @@ impl MemoryTracer {
                                             {
                                                 eprintln!("Failed to read memory: {:?}", e);
                                             } else if let Some(content) = &page.content {
+                                                let timestamp = SystemTime::now()
+                                                    .duration_since(UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs();
+
                                                 let content_path = output_dir.join(format!(
                                                     "mem_{}_{:x}_{}.bin",
-                                                    target_pid,
-                                                    page.address,
-                                                    SystemTime::now()
-                                                        .duration_since(UNIX_EPOCH)
-                                                        .unwrap_or_default()
-                                                        .as_secs()
+                                                    target_pid, page.address, timestamp
                                                 ));
+
                                                 if let Err(e) =
                                                     std::fs::write(&content_path, content)
                                                 {
@@ -341,13 +350,6 @@ impl MemoryTracer {
 
                             if page_start < unmap_end && page_end > unmap_start {
                                 to_remove.push(*addr);
-
-                                /*
-                                println!(
-                                    "Unmapped executable page detected (partial/full): addr={:x}, size={}",
-                                    addr, page.size
-                                );
-                                */
 
                                 let ebpf_timestamp = event
                                     .timestamp
