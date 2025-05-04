@@ -2,9 +2,7 @@ use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
 
 unsafe extern "C" {
     fn mmap(
@@ -31,7 +29,6 @@ fn main() {
     println!("[INFO] Starting the test");
 
     let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
 
     // Test 1
     println!("\n[TEST 1] Rapid allocation and deallocation");

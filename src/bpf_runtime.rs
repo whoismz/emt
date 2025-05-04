@@ -53,52 +53,17 @@ impl BpfRuntime {
             .context("Failed to load BPF object")?;
 
         // attach
-        self.attach_probes(&mut bpf_object)?;
+        self.attach(&mut bpf_object)?;
 
-        let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
-        let target_pid = self.target_pid;
-
-        // TODO: organize the perf_buffer part
-        let mut events_map = None;
-        for map in bpf_object.maps_mut() {
-            if map.name() == "events" {
-                events_map = Some(map);
-                break;
-            }
-        }
-
-        let events = events_map.ok_or_else(|| anyhow::anyhow!("Failed to find events map"))?;
-
-        let perf_buffer = PerfBufferBuilder::new(&events)
-            .sample_cb(move |_cpu, data: &[u8]| {
-                if data.len() >= size_of::<RawMemoryEvent>() {
-                    // parse event
-                    let raw_event =
-                        unsafe { std::ptr::read_unaligned(data.as_ptr() as *const RawMemoryEvent) };
-
-                    // filter pid
-                    if raw_event.pid as i32 == target_pid {
-                        let event = MemoryEvent::from(raw_event);
-
-                        if let Ok(tx) = event_tx.lock() {
-                            let _ = tx.send(event);
-                        }
-                    }
-                }
-            })
-            .lost_cb(|cpu, count| {
-                eprintln!("Lost {} events on CPU {}", count, cpu);
-            })
-            .build()?;
+        self.init_perf_buffer(&bpf_object)?;
 
         self.bpf_object = Some(bpf_object);
-        self.perf_buffer = Some(perf_buffer);
         self.is_active = true;
         Ok(())
     }
 
     /// Attaches all BPF programs to their respective tracepoints
-    fn attach_probes(&mut self, bpf_object: &mut Object) -> Result<()> {
+    fn attach(&mut self, bpf_object: &mut Object) -> Result<()> {
         const TRACEPOINTS: &[(&str, &str, &str)] = &[
             ("trace_enter_mmap", "syscalls", "sys_enter_mmap"),
             ("trace_exit_mmap", "syscalls", "sys_exit_mmap"),
@@ -120,6 +85,51 @@ impl BpfRuntime {
             }
         }
         Ok(())
+    }
+
+    fn init_perf_buffer(&mut self, bpf_object: &Object) -> Result<()> {
+        let events_map = bpf_object
+            .maps()
+            .find(|map| map.name() == "events")
+            .ok_or_else(|| anyhow!("Failed to find events map"))?;
+
+        let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
+        let target_pid = self.target_pid;
+
+        self.perf_buffer = Some(
+            PerfBufferBuilder::new(&events_map)
+                .sample_cb(move |_cpu, data: &[u8]| {
+                    Self::handle_perf_sample(data, &event_tx, target_pid);
+                })
+                .lost_cb(|cpu, count| {
+                    log::warn!("Lost {} events on CPU {}", count, cpu);
+                })
+                .build()
+                .context("Failed to create perf buffer")?,
+        );
+
+        Ok(())
+    }
+
+    fn handle_perf_sample(
+        data: &[u8],
+        event_tx: &Arc<Mutex<Sender<MemoryEvent>>>,
+        target_pid: i32,
+    ) {
+        use std::mem::size_of;
+
+        if data.len() >= size_of::<RawMemoryEvent>() {
+            let raw_event =
+                unsafe { std::ptr::read_unaligned(data.as_ptr() as *const RawMemoryEvent) };
+
+            if raw_event.pid as i32 == target_pid {
+                let event = MemoryEvent::from(raw_event);
+
+                if let Ok(tx) = event_tx.lock() {
+                    let _ = tx.send(event);
+                }
+            }
+        }
     }
 
     pub fn poll(&mut self, timeout: Duration) -> Result<()> {
@@ -164,7 +174,7 @@ impl From<RawMemoryEvent> for MemoryEvent {
         let event_type = match raw.event_type {
             0 => EventType::Map,
             1 => EventType::Unmap,
-            2 => EventType::ProtectionChange,
+            2 => EventType::Mprotection,
             _ => EventType::Map,
         };
 
@@ -210,7 +220,7 @@ mod tests {
             addr: 0x1000,
             length: 4096,
             pid: 1234,
-            event_type: 1,            // Unmap
+            event_type: 1,
             timestamp: 1_000_000_000, // 1 second in ns
         };
 

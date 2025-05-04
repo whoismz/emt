@@ -8,7 +8,7 @@ pub struct ExecutablePage {
     pub timestamp: SystemTime,
     pub source_file: Option<PathBuf>,
     pub content: Option<Vec<u8>>,
-    pub protection_flags: u32, // rwx
+    pub protection_flags: u32,
 }
 
 #[derive(Debug)]
@@ -24,5 +24,5 @@ pub struct MemoryEvent {
 pub enum EventType {
     Map,
     Unmap,
-    ProtectionChange,
+    Mprotection,
 }

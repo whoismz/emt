@@ -241,7 +241,7 @@ impl MemoryTracer {
 
                 // TODO: there is some bugs...
                 match event.event_type {
-                    EventType::Map | EventType::ProtectionChange => {
+                    EventType::Map | EventType::Mprotection => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
                             for mut page in pages {
                                 let page_end = page.address + page.size;
@@ -256,7 +256,11 @@ impl MemoryTracer {
                                     if is_new_page {
                                         println!("new page prot: {}", page.protection_flags);
                                     } else {
-                                        println!("old prot: {}, new prot: {}", known_pages[&page.address].protection_flags, page.protection_flags);
+                                        println!(
+                                            "old prot: {}, new prot: {}",
+                                            known_pages[&page.address].protection_flags,
+                                            page.protection_flags
+                                        );
                                     }
 
                                     if is_new_page || is_modified {
@@ -315,7 +319,7 @@ impl MemoryTracer {
 
                                         let event_type = match event.event_type {
                                             EventType::Map => "Map",
-                                            EventType::ProtectionChange => "ProtectionChange",
+                                            EventType::Mprotection => "Mprotection",
                                             _ => unreachable!(),
                                         };
 

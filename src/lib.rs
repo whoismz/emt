@@ -1,3 +1,16 @@
+//! eBPF-based Linux userspace executable memory tracing library
+//!
+//! # Examples
+//! ```
+//! use emt::trace_process;
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! let mut tracer = trace_process(1234, "./output", false)?;
+//! // ... do work ...
+//! # Ok(())
+//! # }
+//! ```
+
 mod bpf_runtime;
 mod memory_analyzer;
 mod models;
@@ -8,6 +21,15 @@ pub use memory_analyzer::MemoryAnalyzer;
 pub use models::{EventType, ExecutablePage, MemoryEvent};
 pub use tracer::MemoryTracer;
 
+/// Starts tracing executable memory of a process
+///
+/// # Arguments
+/// * `pid` - Target process ID
+/// * `output_dir` - Directory to store trace data
+/// * `save_content` - Whether to save memory content
+///
+/// # Returns
+/// Initialized and started `MemoryTracer` instance
 pub fn trace_process(
     pid: i32,
     output_dir: impl AsRef<std::path::Path>,
@@ -46,7 +68,7 @@ mod tests {
             timestamp: SystemTime::now(),
             source_file: None,
             content: None,
-            protection_flags: 0x5, // PROT_READ | PROT_EXEC
+            protection_flags: 0x5,
         };
 
         assert_eq!(page.address, 0x1000);
