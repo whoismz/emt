@@ -1,8 +1,8 @@
 use std::process::Command;
 
 fn main() {
-    let bpf_src = "src/bpf/memory_tracer.bpf.c";
-    let bpf_out = "src/bpf/memory_tracer.bpf.o";
+    let bpf_src = "src/bpf/memory_tracer_perf_event.bpf.c";
+    let bpf_out = "src/bpf/memory_tracer_perf_event.bpf.o";
 
     println!("cargo:rerun-if-changed={}", bpf_src);
 
