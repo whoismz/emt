@@ -101,14 +101,14 @@ impl BpfRuntime {
 
         let mut builder = RingBufferBuilder::new();
 
-        builder.add(&events_map, move |data: &[u8]| {
-            Self::handle_ringbuf_event(data, &event_tx, target_pid);
-            0
-        }).context("Failed to add callback to ring buffer")?;
+        builder
+            .add(&events_map, move |data: &[u8]| {
+                Self::handle_ringbuf_event(data, &event_tx, target_pid);
+                0
+            })
+            .context("Failed to add callback to ring buffer")?;
 
-        self.ring_buffer = Some(
-            builder.build().context("Failed to create ring buffer")?,
-        );
+        self.ring_buffer = Some(builder.build().context("Failed to create ring buffer")?);
 
         Ok(())
     }

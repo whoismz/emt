@@ -51,7 +51,7 @@ fn main() {
 
         println!("aligned_addr = {:p}", aligned_addr);
         println!("exec_mem = {:p}", exec_mem);
-        
+
         if exec_mem == libc::MAP_FAILED {
             eprintln!("[WARN] mmap failed, retrying...");
             thread::sleep(Duration::from_secs(1));

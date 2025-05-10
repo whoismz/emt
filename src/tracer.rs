@@ -238,7 +238,7 @@ impl MemoryTracer {
                     "Received memory event (ID: {}): type={:?}, addr={:x}, size={}",
                     event_id, event.event_type, event.address, event.size
                 );
-                
+
                 match event.event_type {
                     EventType::Map | EventType::Mprotection => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
