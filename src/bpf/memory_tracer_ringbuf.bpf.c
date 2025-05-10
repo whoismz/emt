@@ -90,7 +90,7 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
             bpf_ringbuf_discard(event, 0);
         }
     } else {
-        long ret = bpf_probe_read_user(event->content, 0, NULL);
+        long ret = bpf_probe_read_user(event->content, copy_len, data);
 
         if (ret == 0) {
             bpf_ringbuf_submit(event, 0);
@@ -179,7 +179,7 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     struct mprotect_args_t *args = bpf_map_lookup_elem(&mprotect_args, &key);
     if (!args) return 0;
 
-    submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MPROTECT, (void *)ctx->ret, args->length);
+    submit_event(ctx, args->start, args->length, pid, EVENT_TYPE_MPROTECT, (void *)args->start, args->length);
 
     bpf_map_delete_elem(&mprotect_args, &key);
     return 0;
