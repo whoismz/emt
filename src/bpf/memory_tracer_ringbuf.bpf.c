@@ -4,6 +4,10 @@
 
 #define PROT_EXEC 0x4
 #define MAX_SNAPSHOT_SIZE 256
+#define EVENT_TYPE_MMAP 0
+#define EVENT_TYPE_MUNMAP 1
+#define EVENT_TYPE_MPROTECT 2
+#define EVENT_TYPE_EXECVE 3
 
 struct memory_event {
     __u64 addr;
@@ -11,16 +15,14 @@ struct memory_event {
     __u32 pid;
     __u32 event_type;
     __u64 timestamp;
-} __attribute__((packed));
-
-struct memory_snapshot {
-    __u64 addr;
-    __u64 length;
-    __u32 pid;
-    __u32 event_type;
-    __u64 timestamp;
     __u8  content[MAX_SNAPSHOT_SIZE];
 } __attribute__((packed));
+
+// ringbuf map
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 24);
+} events SEC(".maps");
 
 struct mmap_args_t {
     __u64 addr;
@@ -64,44 +66,25 @@ struct {
     __type(value, struct execve_args_t);
 } execve_args SEC(".maps");
 
-// perf event map
-struct {
-    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-	__uint(key_size, sizeof(int));
-    __uint(value_size, sizeof(int));
-} events SEC(".maps");
-
-// ringbuf map
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24); // 16MB ring buffer
-} snapshots SEC(".maps");
-
-static void capture_snapshot(struct pt_regs *ctx, __u64 addr, __u64 len, __u32 pid, __u32 event_type) {
+static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 event_type, const void *data, __u32 data_len) {
     // if (len < 16) return;
 
-    __u64 capture_len = len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : len;
+    struct memory_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+    if (!event) return;
 
-    struct memory_snapshot *snap = bpf_ringbuf_reserve(&snapshots,
-        sizeof(*snap), 0);
-    if (!snap) return;
+    event->addr = addr;
+    event->length = len;
+    event->pid = pid;
+    event->event_type = event_type;
+    event->timestamp = bpf_ktime_get_ns();
 
-    snap->addr = addr;
-    snap->length = len;
-    snap->pid = pid;
-    snap->event_type = event_type;
-    snap->timestamp = bpf_ktime_get_ns();
+    __u32 copy_len = data_len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : data_len;
 
-    long ret = bpf_probe_read_user(
-        snap->content,
-        capture_len,
-        (void *)addr
-    );
-
+    long ret = bpf_probe_read_user(event->content, copy_len, (void *)data);
     if (ret == 0) {
-        bpf_ringbuf_submit(snap, 0);
+        bpf_ringbuf_submit(event, 0);
     } else {
-        bpf_ringbuf_discard(snap, 0);
+        bpf_ringbuf_discard(event, 0);
     }
 }
 
@@ -132,11 +115,9 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     // bpf_printk("exit_mmap called");
 
     __u64 key = bpf_get_current_pid_tgid();
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u32 pid = key >> 32;
 
-    long ret = ctx->ret;
-
-    if (ret < 0) {
+    if (ctx->ret < 0) {
         bpf_map_delete_elem(&mmap_args, &key);
         return 0;
     }
@@ -144,16 +125,8 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     struct mmap_args_t *args = bpf_map_lookup_elem(&mmap_args, &key);
     if (!args) return 0;
 
-    struct memory_event event = {
-        .addr = ret,
-        .length = args->length,
-        .pid = pid,
-        .event_type = 0,
-        .timestamp = bpf_ktime_get_ns()
-    };
+    submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, (void *)ctx->ret, args->length);
 
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
-    capture_snapshot(ctx, ctx->ret, args->length, pid, 0);
     bpf_map_delete_elem(&mmap_args, &key);
     return 0;
 }
@@ -182,9 +155,9 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     // bpf_printk("mprotect called");
 
     __u64 key = bpf_get_current_pid_tgid();
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u32 pid = key >> 32;
 
-    if (ctx->ret != 0) {
+    if (ctx->ret < 0) {
         bpf_map_delete_elem(&mprotect_args, &key);
         return 0;
     }
@@ -192,16 +165,8 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     struct mprotect_args_t *args = bpf_map_lookup_elem(&mprotect_args, &key);
     if (!args) return 0;
 
-    struct memory_event event = {
-        .addr = args->start,
-        .length = args->length,
-        .pid = pid,
-        .event_type = 2,
-        .timestamp = bpf_ktime_get_ns()
-    };
+    submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MPROTECT, (void *)ctx->ret, args->length);
 
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
-    capture_snapshot(ctx, args->start, args->length, pid, 2);
     bpf_map_delete_elem(&mprotect_args, &key);
     return 0;
 }
