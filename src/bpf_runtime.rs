@@ -4,14 +4,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use libbpf_rs::{Link, MapCore, Object, ObjectBuilder, PerfBuffer, PerfBufferBuilder};
+use libbpf_rs::{Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
+
+// Maximum size of the content snapshot in the BPF program
+const MAX_SNAPSHOT_SIZE: usize = 256;
 
 /// Manages the BPF program lifecycle including loading, attaching, and event processing
 pub struct BpfRuntime {
     bpf_object: Option<Object>,
-    perf_buffer: Option<PerfBuffer<'static>>,
+    ring_buffer: Option<RingBuffer<'static>>,
     probe_links: Vec<Link>,
     event_tx: Sender<MemoryEvent>,
     target_pid: i32,
@@ -27,7 +30,7 @@ impl BpfRuntime {
     pub fn new(event_tx: Sender<MemoryEvent>, target_pid: i32) -> Result<Self> {
         Ok(Self {
             bpf_object: None,
-            perf_buffer: None,
+            ring_buffer: None,
             probe_links: Vec::new(),
             event_tx,
             target_pid,
@@ -53,9 +56,9 @@ impl BpfRuntime {
             .context("Failed to load BPF object")?;
 
         // attach
-        self.attach(&mut bpf_object)?;
+        self.attach_probes(&mut bpf_object)?;
 
-        self.init_perf_buffer(&bpf_object)?;
+        self.init_ring_buffer(&bpf_object)?;
 
         self.bpf_object = Some(bpf_object);
         self.is_active = true;
@@ -63,7 +66,7 @@ impl BpfRuntime {
     }
 
     /// Attaches all BPF programs to their respective tracepoints
-    fn attach(&mut self, bpf_object: &mut Object) -> Result<()> {
+    fn attach_probes(&mut self, bpf_object: &mut Object) -> Result<()> {
         const TRACEPOINTS: &[(&str, &str, &str)] = &[
             ("trace_enter_mmap", "syscalls", "sys_enter_mmap"),
             ("trace_exit_mmap", "syscalls", "sys_exit_mmap"),
@@ -87,7 +90,7 @@ impl BpfRuntime {
         Ok(())
     }
 
-    fn init_perf_buffer(&mut self, bpf_object: &Object) -> Result<()> {
+    fn init_ring_buffer(&mut self, bpf_object: &Object) -> Result<()> {
         let events_map = bpf_object
             .maps()
             .find(|map| map.name() == "events")
@@ -96,22 +99,21 @@ impl BpfRuntime {
         let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
         let target_pid = self.target_pid;
 
-        self.perf_buffer = Some(
-            PerfBufferBuilder::new(&events_map)
-                .sample_cb(move |_cpu, data: &[u8]| {
-                    Self::handle_perf_sample(data, &event_tx, target_pid);
-                })
-                .lost_cb(|cpu, count| {
-                    log::warn!("Lost {} events on CPU {}", count, cpu);
-                })
-                .build()
-                .context("Failed to create perf buffer")?,
+        let mut builder = RingBufferBuilder::new();
+
+        builder.add(&events_map, move |data: &[u8]| {
+            Self::handle_ringbuf_event(data, &event_tx, target_pid);
+            0
+        }).context("Failed to add callback to ring buffer")?;
+
+        self.ring_buffer = Some(
+            builder.build().context("Failed to create ring buffer")?,
         );
 
         Ok(())
     }
 
-    fn handle_perf_sample(
+    fn handle_ringbuf_event(
         data: &[u8],
         event_tx: &Arc<Mutex<Sender<MemoryEvent>>>,
         target_pid: i32,
@@ -137,7 +139,7 @@ impl BpfRuntime {
             return Ok(());
         }
 
-        self.perf_buffer
+        self.ring_buffer
             .as_mut()
             .ok_or(anyhow!("Perf buffer not initialized"))?
             .poll(timeout)
@@ -146,7 +148,7 @@ impl BpfRuntime {
 
     pub fn stop(&mut self) -> Result<()> {
         self.is_active = false;
-        self.perf_buffer.take();
+        self.ring_buffer.take();
         self.bpf_object.take();
         self.probe_links.clear();
         Ok(())

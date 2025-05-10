@@ -209,7 +209,7 @@ impl MemoryTracer {
 
         log_file.flush()?;
 
-        bpf_runtime.start("./src/bpf/memory_tracer.bpf.o")?;
+        bpf_runtime.start("./src/bpf/memory_tracer_ringbuf.bpf.o")?;
 
         static EVENT_COUNTER: AtomicUsize = AtomicUsize::new(1);
 

@@ -80,12 +80,26 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
 
     __u32 copy_len = data_len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : data_len;
 
-    long ret = bpf_probe_read_user(event->content, copy_len, (void *)data);
-    if (ret == 0) {
-        bpf_ringbuf_submit(event, 0);
+    if (data == NULL || data_len == 0) {
+        // Submit event without content
+        long ret = bpf_probe_read_user(event->content, 0, NULL);
+
+        if (ret == 0) {
+            bpf_ringbuf_submit(event, 0);
+        } else {
+            bpf_ringbuf_discard(event, 0);
+        }
     } else {
-        bpf_ringbuf_discard(event, 0);
+        long ret = bpf_probe_read_user(event->content, 0, NULL);
+
+        if (ret == 0) {
+            bpf_ringbuf_submit(event, 0);
+        } else {
+            bpf_ringbuf_discard(event, 0);
+        }
     }
+
+    return;
 }
 
 SEC("tracepoint/syscalls/sys_enter_mmap")
@@ -175,15 +189,11 @@ SEC("tracepoint/syscalls/sys_enter_munmap")
 int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
 	// bpf_printk("unmmap called");
 
-	struct memory_event event = {
-        .addr = ctx->args[0],
-        .length = ctx->args[1],
-        .pid = bpf_get_current_pid_tgid() >> 32,
-        .event_type = 1,
-        .timestamp = bpf_ktime_get_ns()
-	};
+	__u64 addr = ctx->args[0];
+    __u64 length = ctx->args[1];
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    submit_event(ctx, addr, length, pid, EVENT_TYPE_MUNMAP, NULL, 0);
     return 0;
 }
 
@@ -200,15 +210,7 @@ int trace_enter_execve(struct trace_event_raw_sys_enter *ctx) {
 
     bpf_map_update_elem(&execve_args, &key, &args, BPF_ANY);
 
-    struct memory_event event = {
-        .addr = 0,
-        .length = 0,
-        .pid = pid,
-        .event_type = 3,
-        .timestamp = bpf_ktime_get_ns()
-    };
-
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+    submit_event(ctx, 0, 0, pid, EVENT_TYPE_EXECVE, NULL, 0);
     return 0;
 }
 
