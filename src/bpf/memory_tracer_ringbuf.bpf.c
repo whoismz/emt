@@ -80,15 +80,8 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
 
     __u32 copy_len = data_len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : data_len;
 
-    if (data == NULL || data_len == 0) {
-        // Submit event without content
-        long ret = bpf_probe_read_user(event->content, 0, NULL);
-
-        if (ret == 0) {
-            bpf_ringbuf_submit(event, 0);
-        } else {
-            bpf_ringbuf_discard(event, 0);
-        }
+    if (data == NULL || copy_len == 0) {
+        bpf_ringbuf_submit(event, 0);
     } else {
         long ret = bpf_probe_read_user(event->content, copy_len, data);
 
@@ -139,7 +132,13 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     struct mmap_args_t *args = bpf_map_lookup_elem(&mmap_args, &key);
     if (!args) return 0;
 
-    submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, (void *)ctx->ret, args->length);
+    bool is_anonymous = args->flags & 0x20;
+
+    if (is_anonymous) {
+        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL, 0);
+    } else {
+        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, (void *)ctx->ret, args->length);
+    }
 
     bpf_map_delete_elem(&mmap_args, &key);
     return 0;
@@ -155,9 +154,9 @@ int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
     __u64 key = bpf_get_current_pid_tgid();
 
     struct mprotect_args_t args = {
-            .start = ctx->args[0],
-            .length = ctx->args[1],
-            .prot = ctx->args[2],
+        .start = ctx->args[0],
+        .length = ctx->args[1],
+        .prot = ctx->args[2],
     };
 
     bpf_map_update_elem(&mprotect_args, &key, &args, BPF_ANY);
