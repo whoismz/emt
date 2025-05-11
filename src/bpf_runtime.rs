@@ -125,10 +125,8 @@ impl BpfRuntime {
 
             if raw_event.pid as i32 == target_pid {
                 let event = MemoryEvent::from(raw_event);
+                let _ = event_tx.send(event);
 
-                if let Ok(tx) = event_tx.lock() {
-                    let _ = tx.send(event);
-                }
             }
         }
     }
