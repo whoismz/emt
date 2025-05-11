@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use libbpf_rs::{Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
+use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
 use crate::models::{EventType, MemoryEvent};
 
@@ -48,16 +48,15 @@ impl BpfRuntime {
             return Err(anyhow!("BPF program not found at {}", bpf_path.display()));
         }
 
-        // load bpf object
+        // Load BPF object
         let mut bpf_object = ObjectBuilder::default()
             .open_file(bpf_path)
             .context("Failed to open BPF object file")?
             .load()
             .context("Failed to load BPF object")?;
 
-        // attach
+        // Attach probes and initialize ring buffer
         self.attach_probes(&mut bpf_object)?;
-
         self.init_ring_buffer(&bpf_object)?;
 
         self.bpf_object = Some(bpf_object);
@@ -96,7 +95,7 @@ impl BpfRuntime {
             .find(|map| map.name() == "events")
             .ok_or_else(|| anyhow!("Failed to find events map"))?;
 
-        let event_tx = Arc::new(Mutex::new(self.event_tx.clone()));
+        let event_tx = Arc::new(self.event_tx.clone());
         let target_pid = self.target_pid;
 
         let mut builder = RingBufferBuilder::new();
@@ -115,7 +114,7 @@ impl BpfRuntime {
 
     fn handle_ringbuf_event(
         data: &[u8],
-        event_tx: &Arc<Mutex<Sender<MemoryEvent>>>,
+        event_tx: &Arc<Sender<MemoryEvent>>,
         target_pid: i32,
     ) {
         use std::mem::size_of;
@@ -139,11 +138,17 @@ impl BpfRuntime {
             return Ok(());
         }
 
-        self.ring_buffer
+        let rb = self.ring_buffer
             .as_mut()
-            .ok_or(anyhow!("Perf buffer not initialized"))?
-            .poll(timeout)
-            .context("Failed to poll events")
+            .ok_or(anyhow!("Perf buffer not initialized"))?;
+
+        loop {
+            match rb.poll(timeout) {
+                Ok(()) => break Ok(()),
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => break Err(e).context("Failed to poll events"),
+            }
+        }
     }
 
     pub fn stop(&mut self) -> Result<()> {
