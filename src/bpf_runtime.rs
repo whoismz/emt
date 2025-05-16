@@ -1,6 +1,6 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc};
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
@@ -8,7 +8,7 @@ use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, Rin
 
 use crate::models::{EventType, MemoryEvent};
 
-// Maximum size of the content snapshot in the BPF program
+// 添加常量定义
 const MAX_SNAPSHOT_SIZE: usize = 256;
 
 /// Manages the BPF program lifecycle including loading, attaching, and event processing
@@ -112,11 +112,7 @@ impl BpfRuntime {
         Ok(())
     }
 
-    fn handle_ringbuf_event(
-        data: &[u8],
-        event_tx: &Arc<Sender<MemoryEvent>>,
-        target_pid: i32,
-    ) {
+    fn handle_ringbuf_event(data: &[u8], event_tx: &Arc<Sender<MemoryEvent>>, target_pid: i32) {
         use std::mem::size_of;
 
         if data.len() >= size_of::<RawMemoryEvent>() {
@@ -126,7 +122,6 @@ impl BpfRuntime {
             if raw_event.pid as i32 == target_pid {
                 let event = MemoryEvent::from(raw_event);
                 let _ = event_tx.send(event);
-
             }
         }
     }
@@ -136,9 +131,10 @@ impl BpfRuntime {
             return Ok(());
         }
 
-        let rb = self.ring_buffer
+        let rb = self
+            .ring_buffer
             .as_mut()
-            .ok_or(anyhow!("Perf buffer not initialized"))?;
+            .ok_or(anyhow!("Ring buffer not initialized"))?;
 
         loop {
             match rb.poll(timeout) {
@@ -172,6 +168,8 @@ struct RawMemoryEvent {
     pid: u32,
     event_type: u32,
     timestamp: u64,
+    content_size: u64,
+    content: [u8; MAX_SNAPSHOT_SIZE],
 }
 
 impl From<RawMemoryEvent> for MemoryEvent {
@@ -183,12 +181,21 @@ impl From<RawMemoryEvent> for MemoryEvent {
             _ => EventType::Map,
         };
 
+        let content = if raw.content_size > 0 && raw.content_size <= MAX_SNAPSHOT_SIZE as u64 {
+            let mut content_vec = Vec::with_capacity(raw.content_size as usize);
+            content_vec.extend_from_slice(&raw.content[..raw.content_size as usize]);
+            Some(content_vec)
+        } else {
+            None
+        };
+        
         MemoryEvent {
             event_type,
             address: raw.addr as usize,
             size: raw.length as usize,
             timestamp: UNIX_EPOCH + Duration::from_nanos(raw.timestamp),
             pid: raw.pid as i32,
+            content,
         }
     }
 }
@@ -227,6 +234,8 @@ mod tests {
             pid: 1234,
             event_type: 1,
             timestamp: 1_000_000_000, // 1 second in ns
+            content_size: 0,
+            content: [0; MAX_SNAPSHOT_SIZE],
         };
 
         let event: MemoryEvent = raw.into();

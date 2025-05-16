@@ -125,8 +125,7 @@ fn main() -> Result<()> {
         println!("Memory content will be saved");
     }
 
-    let tracer = trace_process(pid, &cli.output, cli.save_content)
-        .context("Failed to start memory tracer")?;
+    let tracer = trace_process(pid).context("Failed to start memory tracer")?;
 
     // set up duration timeout or wait for Ctrl+C
     if cli.duration > 0 {

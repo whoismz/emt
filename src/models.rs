@@ -18,6 +18,7 @@ pub struct MemoryEvent {
     pub size: usize,
     pub timestamp: SystemTime,
     pub pid: i32,
+    pub content: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

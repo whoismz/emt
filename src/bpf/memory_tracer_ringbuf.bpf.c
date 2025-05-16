@@ -3,6 +3,7 @@
 #include <bpf/bpf_tracing.h>
 
 #define PROT_EXEC 0x4
+#define MAPPING_ANONYMOUS 0x20
 #define MAX_SNAPSHOT_SIZE 256
 #define EVENT_TYPE_MMAP 0
 #define EVENT_TYPE_MUNMAP 1
@@ -15,6 +16,7 @@ struct memory_event {
     __u32 pid;
     __u32 event_type;
     __u64 timestamp;
+    __u64 content_size;
     __u8  content[MAX_SNAPSHOT_SIZE];
 } __attribute__((packed));
 
@@ -80,6 +82,8 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
 
     __u32 copy_len = data_len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : data_len;
 
+    event->content_size = copy_len;
+
     if (data == NULL || copy_len == 0) {
         bpf_ringbuf_submit(event, 0);
     } else {
@@ -132,7 +136,7 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     struct mmap_args_t *args = bpf_map_lookup_elem(&mmap_args, &key);
     if (!args) return 0;
 
-    bool is_anonymous = args->flags & 0x20;
+    bool is_anonymous = args->flags & MAPPING_ANONYMOUS;
 
     if (is_anonymous) {
         submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL, 0);

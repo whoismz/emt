@@ -30,12 +30,8 @@ pub use tracer::MemoryTracer;
 ///
 /// # Returns
 /// Initialized and started `MemoryTracer` instance
-pub fn trace_process(
-    pid: i32,
-    output_dir: impl AsRef<std::path::Path>,
-    save_content: bool,
-) -> anyhow::Result<MemoryTracer> {
-    let mut tracer = MemoryTracer::new(pid, output_dir, save_content);
+pub fn trace_process(pid: i32) -> anyhow::Result<MemoryTracer> {
+    let mut tracer = MemoryTracer::new(pid);
     tracer.start()?;
     Ok(tracer)
 }
