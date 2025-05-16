@@ -25,6 +25,6 @@ sudo cargo run --bin emt-cli -- --help
 sudo cargo run --example test_memory_changes
 
 // Terminal 2, paste the PID
-sudo cargo run --bin emt-cli -- -p [PID] -s
+sudo cargo run --bin emt-cli -- -p [PID]
 ```
 
