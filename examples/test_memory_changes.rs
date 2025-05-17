@@ -1,10 +1,10 @@
 use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 fn main() {
     // Basic info and startup
@@ -20,7 +20,8 @@ fn main() {
     ctrlc::set_handler(move || {
         println!("Stopping...");
         r.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl+C handler");
+    })
+    .expect("Error setting Ctrl+C handler");
 
     // Memory operation constants
     const PAGE_SIZE: usize = 4096;
@@ -38,10 +39,8 @@ fn main() {
             .unwrap_or_default()
             .subsec_nanos() as usize;
 
-
         let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
         let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
-
 
         // Step 1: Allocate memory with read+write permissions
         let memory = unsafe {
@@ -51,7 +50,7 @@ fn main() {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
                 -1,
-                0
+                0,
             );
 
             if ptr == libc::MAP_FAILED {
@@ -89,11 +88,7 @@ fn main() {
 
         // Step 3: Change memory permissions to read+execute
         unsafe {
-            let result = libc::mprotect(
-                memory,
-                PAGE_SIZE,
-                libc::PROT_READ | libc::PROT_EXEC
-            );
+            let result = libc::mprotect(memory, PAGE_SIZE, libc::PROT_READ | libc::PROT_EXEC);
 
             if result == 0 {
                 println!("Memory now executable");

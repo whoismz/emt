@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use anyhow::{Context, Result};
 use procfs::process::{MMapPath, Process};
 
-use crate::models::ExecutablePage;
+use crate::models::Page;
 
 pub struct MemoryAnalyzer {
     pub pid: i32,
@@ -16,7 +16,7 @@ impl MemoryAnalyzer {
     }
 
     // get all executable memory pages for the process
-    pub fn get_executable_pages(&self) -> Result<Vec<ExecutablePage>> {
+    pub fn get_executable_pages(&self) -> Result<Vec<Page>> {
         let process = Process::new(self.pid).context("Failed to open process")?;
         let maps = process.maps().context("Failed to read memory maps")?;
 
@@ -32,13 +32,13 @@ impl MemoryAnalyzer {
                     _ => None,
                 };
 
-                executable_pages.push(ExecutablePage {
-                    address: map.address.0 as usize,
+                executable_pages.push(Page {
+                    addr: map.address.0 as usize,
                     size: (map.address.1 - map.address.0) as usize,
                     timestamp: SystemTime::now(),
                     source_file,
                     content: None,
-                    protection_flags: Self::perms_to_flags(&perms_str),
+                    flag: Self::perms_to_flags(&perms_str),
                 });
             }
         }
@@ -47,7 +47,7 @@ impl MemoryAnalyzer {
     }
 
     // read memory page content
-    pub fn read_memory_page(&self, page: &mut ExecutablePage) -> Result<()> {
+    pub fn read_memory_page(&self, page: &mut Page) -> Result<()> {
         let mut content = vec![0u8; page.size];
 
         // read from /proc/[pid]/mem
@@ -58,7 +58,7 @@ impl MemoryAnalyzer {
             .context("Failed to open process memory")?;
 
         use std::io::{Read, Seek, SeekFrom};
-        file.seek(SeekFrom::Start(page.address as u64))
+        file.seek(SeekFrom::Start(page.addr as u64))
             .context("Failed to seek to memory address")?;
         file.read_exact(&mut content)
             .context("Failed to read memory content")?;

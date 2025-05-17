@@ -1,23 +1,23 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::bpf_runtime::BpfRuntime;
-use crate::memory_analyzer::MemoryAnalyzer;
-use crate::models::{EventType, ExecutablePage, MemoryEvent};
+use crate::analyzer::MemoryAnalyzer;
+use crate::ebpf::BpfRuntime;
+use crate::models::{Event, EventType, Page};
 
-pub struct MemoryTracer {
+pub struct Handler {
     target_pid: i32,
     running: bool,
-    event_tx: Option<Sender<MemoryEvent>>,
+    event_tx: Option<Sender<Event>>,
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
-impl MemoryTracer {
+impl Handler {
     pub fn new(target_pid: i32) -> Self {
         Self {
             target_pid,
@@ -56,10 +56,11 @@ impl MemoryTracer {
 
         // notify tracer thread to stop
         if let Some(tx) = &self.event_tx {
-            let _ = tx.send(MemoryEvent {
+            let _ = tx.send(Event {
                 event_type: EventType::Unmap,
-                address: 0,
+                addr: 0,
                 size: 0,
+                flag: 0,
                 timestamp: SystemTime::now(),
                 pid: -1,
                 content: None,
@@ -77,16 +78,12 @@ impl MemoryTracer {
         Ok(())
     }
 
-    fn run(
-        target_pid: i32,
-        event_tx: Sender<MemoryEvent>,
-        event_rx: Receiver<MemoryEvent>,
-    ) -> Result<()> {
+    fn run(target_pid: i32, event_tx: Sender<Event>, event_rx: Receiver<Event>) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let memory_analyzer = MemoryAnalyzer::new(target_pid);
 
         // record currently known executable memory pages
-        let mut known_pages: HashMap<usize, ExecutablePage> = HashMap::new();
+        let mut known_pages: HashMap<usize, Page> = HashMap::new();
 
         bpf_runtime.start("./src/bpf/memory_tracer_ringbuf.bpf.o")?;
 
@@ -115,26 +112,20 @@ impl MemoryTracer {
 
                 println!(
                     "{}: type={:?}, addr={:x}, size={}",
-                    event_id, event.event_type, event.address, event.size
+                    event_id, event.event_type, event.addr, event.size
                 );
 
-                if let Some(content) = &event.content {
-                    println!("Event includes memory content of size: {} bytes", content.len());
-                    Self::print_memory_content(content, event.address);
-                }
-
                 match event.event_type {
-                    EventType::Map | EventType::Mprotection => {
+                    EventType::Map | EventType::Mprotect => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
                             for page in pages {
-                                let page_end = page.address + page.size;
-                                let event_end = event.address + event.size;
+                                let page_end = page.addr + page.size;
+                                let event_end = event.addr + event.size;
 
-                                if page.address < event_end && page_end > event.address {
-                                    let is_new_page = !known_pages.contains_key(&page.address);
-                                    let is_modified = !is_new_page
-                                        && known_pages[&page.address].protection_flags
-                                            != page.protection_flags;
+                                if page.addr < event_end && page_end > event.addr {
+                                    let is_new_page = !known_pages.contains_key(&page.addr);
+                                    let is_modified =
+                                        !is_new_page && known_pages[&page.addr].flag != page.flag;
 
                                     if is_new_page || is_modified {
                                         /*
@@ -146,7 +137,7 @@ impl MemoryTracer {
                                         );
                                          */
 
-                                        known_pages.insert(page.address, page);
+                                        known_pages.insert(page.addr, page);
                                     }
                                 }
                             }
@@ -154,8 +145,8 @@ impl MemoryTracer {
                     }
                     EventType::Unmap => {
                         let mut to_remove = Vec::new();
-                        let unmap_start = event.address;
-                        let unmap_end = event.address + event.size;
+                        let unmap_start = event.addr;
+                        let unmap_end = event.addr + event.size;
 
                         for (addr, page) in &known_pages {
                             let page_start = *addr;
@@ -185,8 +176,6 @@ impl MemoryTracer {
     }
 
     fn print_memory_content(content: &[u8], address: usize) {
-        println!("Memory content at 0x{:x} ({} bytes):", address, content.len());
-
         const BYTES_PER_ROW: usize = 16;
         for (i, chunk) in content.chunks(BYTES_PER_ROW).enumerate() {
             let mut hex_line = format!("0x{:08x}: ", address + i * BYTES_PER_ROW);
@@ -199,7 +188,8 @@ impl MemoryTracer {
             }
 
             if chunk.len() < BYTES_PER_ROW {
-                let spaces = (BYTES_PER_ROW - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
+                let spaces =
+                    (BYTES_PER_ROW - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
                 for _ in 0..spaces {
                     hex_line.push(' ');
                 }
@@ -217,16 +207,18 @@ impl MemoryTracer {
             println!("{}", hex_line);
 
             if i >= 15 && content.len() > 16 * 16 {
-                println!("... (showing only first 16 lines of {} total)",
-                     (content.len() + BYTES_PER_ROW - 1) / BYTES_PER_ROW);
+                println!(
+                    "... (showing only first 16 lines of {} total)",
+                    (content.len() + BYTES_PER_ROW - 1) / BYTES_PER_ROW
+                );
                 break;
             }
         }
-        println!("");
+        println!();
     }
 }
 
-impl Drop for MemoryTracer {
+impl Drop for Handler {
     fn drop(&mut self) {
         let _ = self.stop();
     }

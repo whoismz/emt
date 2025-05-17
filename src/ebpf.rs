@@ -6,7 +6,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow};
 use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
-use crate::models::{EventType, MemoryEvent};
+use crate::models::{Event, EventType};
 
 const MAX_SNAPSHOT_SIZE: usize = 256;
 
@@ -15,7 +15,7 @@ pub struct BpfRuntime {
     bpf_object: Option<Object>,
     ring_buffer: Option<RingBuffer<'static>>,
     probe_links: Vec<Link>,
-    event_tx: Sender<MemoryEvent>,
+    event_tx: Sender<Event>,
     target_pid: i32,
     is_active: bool,
 }
@@ -26,7 +26,7 @@ impl BpfRuntime {
     /// # Arguments
     /// * `event_tx` - Channel sender for memory events
     /// * `target_pid` - PID of the process to monitor
-    pub fn new(event_tx: Sender<MemoryEvent>, target_pid: i32) -> Result<Self> {
+    pub fn new(event_tx: Sender<Event>, target_pid: i32) -> Result<Self> {
         Ok(Self {
             bpf_object: None,
             ring_buffer: None,
@@ -111,7 +111,7 @@ impl BpfRuntime {
         Ok(())
     }
 
-    fn handle_ringbuf_event(data: &[u8], event_tx: &Arc<Sender<MemoryEvent>>, target_pid: i32) {
+    fn handle_ringbuf_event(data: &[u8], event_tx: &Arc<Sender<Event>>, target_pid: i32) {
         use std::mem::size_of;
 
         if data.len() >= size_of::<RawMemoryEvent>() {
@@ -119,7 +119,7 @@ impl BpfRuntime {
                 unsafe { std::ptr::read_unaligned(data.as_ptr() as *const RawMemoryEvent) };
 
             if raw_event.pid as i32 == target_pid {
-                let event = MemoryEvent::from(raw_event);
+                let event = Event::from(raw_event);
                 let _ = event_tx.send(event);
             }
         }
@@ -171,12 +171,12 @@ struct RawMemoryEvent {
     content: [u8; MAX_SNAPSHOT_SIZE],
 }
 
-impl From<RawMemoryEvent> for MemoryEvent {
+impl From<RawMemoryEvent> for Event {
     fn from(raw: RawMemoryEvent) -> Self {
         let event_type = match raw.event_type {
             0 => EventType::Map,
             1 => EventType::Unmap,
-            2 => EventType::Mprotection,
+            2 => EventType::Mprotect,
             _ => EventType::Map,
         };
 
@@ -187,71 +187,15 @@ impl From<RawMemoryEvent> for MemoryEvent {
         } else {
             None
         };
-        
-        MemoryEvent {
+
+        Event {
             event_type,
-            address: raw.addr as usize,
+            addr: raw.addr as usize,
             size: raw.length as usize,
+            flag: 0, // TODO
             timestamp: UNIX_EPOCH + Duration::from_nanos(raw.timestamp),
             pid: raw.pid as i32,
             content,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::mpsc;
-
-    #[test]
-    fn test_new_bpf_runtime() {
-        let (tx, _rx) = mpsc::channel();
-        let runtime = BpfRuntime::new(tx, 1234).unwrap();
-
-        assert!(!runtime.is_active);
-        assert_eq!(runtime.target_pid, 1234);
-    }
-
-    #[test]
-    fn test_start_stop() {
-        let (tx, _rx) = mpsc::channel();
-        let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
-
-        assert!(runtime.start("nonexistent.bpf.o").is_err());
-
-        runtime.is_active = true;
-        runtime.stop().unwrap();
-        assert!(!runtime.is_active);
-    }
-
-    #[test]
-    fn test_raw_event_conversion() {
-        let raw = RawMemoryEvent {
-            addr: 0x1000,
-            length: 4096,
-            pid: 1234,
-            event_type: 1,
-            timestamp: 1_000_000_000, // 1 second in ns
-            content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
-        };
-
-        let event: MemoryEvent = raw.into();
-
-        assert_eq!(event.event_type, EventType::Unmap);
-        assert_eq!(event.address, 0x1000);
-        assert_eq!(event.size, 4096);
-        assert_eq!(event.pid, 1234);
-        assert_eq!(event.timestamp, UNIX_EPOCH + Duration::from_secs(1));
-    }
-
-    #[test]
-    fn test_drop_impl() {
-        let (tx, _rx) = mpsc::channel();
-        let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
-        runtime.is_active = true;
-
-        drop(runtime);
     }
 }

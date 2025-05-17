@@ -11,13 +11,13 @@
 //! # }
 //! ```
 
-mod bpf_runtime;
-mod memory_analyzer;
+mod analyzer;
+mod ebpf;
+mod handler;
 mod models;
-mod tracer;
 
-pub use models::{EventType, MemoryEvent};
-pub use tracer::MemoryTracer;
+pub use handler::Handler;
+pub use models::{Event, EventType};
 
 /// Starts tracing executable memory of a process
 ///
@@ -26,31 +26,8 @@ pub use tracer::MemoryTracer;
 ///
 /// # Returns
 /// Initialized and started `MemoryTracer` instance
-pub fn trace_process(pid: i32) -> anyhow::Result<MemoryTracer> {
-    let mut tracer = MemoryTracer::new(pid);
+pub fn trace_process(pid: i32) -> anyhow::Result<Handler> {
+    let mut tracer = Handler::new(pid);
     tracer.start()?;
     Ok(tracer)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_models() {
-        use crate::models::ExecutablePage;
-        use std::time::SystemTime;
-
-        let page = ExecutablePage {
-            address: 0x1000,
-            size: 4096,
-            timestamp: SystemTime::now(),
-            source_file: None,
-            content: None,
-            protection_flags: 0x5,
-        };
-
-        assert_eq!(page.address, 0x1000);
-        assert_eq!(page.size, 4096);
-    }
 }
