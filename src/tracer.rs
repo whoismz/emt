@@ -126,7 +126,7 @@ impl MemoryTracer {
                 match event.event_type {
                     EventType::Map | EventType::Mprotection => {
                         if let Ok(pages) = memory_analyzer.get_executable_pages() {
-                            for mut page in pages {
+                            for page in pages {
                                 let page_end = page.address + page.size;
                                 let event_end = event.address + event.size;
 

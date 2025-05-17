@@ -5,7 +5,7 @@
 //! use emt::trace_process;
 //!
 //! # fn main() -> anyhow::Result<()> {
-//! let mut tracer = trace_process(1234, "./output", false)?;
+//! let mut tracer = trace_process(1234)?;
 //! // ... do work ...
 //! # Ok(())
 //! # }
@@ -16,17 +16,13 @@ mod memory_analyzer;
 mod models;
 mod tracer;
 
-pub use bpf_runtime::BpfRuntime;
-pub use memory_analyzer::MemoryAnalyzer;
-pub use models::{EventType, ExecutablePage, MemoryEvent};
+pub use models::{EventType, MemoryEvent};
 pub use tracer::MemoryTracer;
 
 /// Starts tracing executable memory of a process
 ///
 /// # Arguments
 /// * `pid` - Target process ID
-/// * `output_dir` - Directory to store trace data
-/// * `save_content` - Whether to save memory content
 ///
 /// # Returns
 /// Initialized and started `MemoryTracer` instance
@@ -36,22 +32,9 @@ pub fn trace_process(pid: i32) -> anyhow::Result<MemoryTracer> {
     Ok(tracer)
 }
 
-pub fn check_environment() -> anyhow::Result<&'static str> {
-    // Check if we can access procfs
-    let process = procfs::process::Process::myself()?;
-    println!("Current process PID: {}", process.pid);
-
-    Ok("Environment check passed")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_environment() {
-        assert!(check_environment().is_ok());
-    }
 
     #[test]
     fn test_models() {

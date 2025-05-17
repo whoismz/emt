@@ -8,7 +8,6 @@ use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, Rin
 
 use crate::models::{EventType, MemoryEvent};
 
-// 添加常量定义
 const MAX_SNAPSHOT_SIZE: usize = 256;
 
 /// Manages the BPF program lifecycle including loading, attaching, and event processing

@@ -2,83 +2,116 @@ use std::io::{self, BufRead};
 use std::process;
 use std::ptr;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 fn main() {
-    println!("=== Memory Data Capture Test ===");
-    println!("Current PID: {}", process::id());
-    println!("Start your memory tracer with this PID, then press Enter to begin test...");
-    
+    // Basic info and startup
+    println!("=== Memory Operation Test (Loop) ===");
+    println!("PID: {}", process::id());
+    println!("Attach your tracer, then press Enter to start loop...");
+
     let _ = io::stdin().lock().lines().next();
 
-    println!("\n[Step 1] Allocating memory with RW permissions...");
-    
+    // Setup Ctrl+C handler to exit loop gracefully
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        println!("Stopping...");
+        r.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl+C handler");
+
+    // Memory operation constants
     const PAGE_SIZE: usize = 4096;
     const TEST_PATTERN_SIZE: usize = 128;
 
-    let memory = unsafe {
-        let ptr = libc::mmap(
-            ptr::null_mut(),
-            PAGE_SIZE,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            -1,
-            0
-        );
+    let mut cycle_count = 0;
 
-        if ptr == libc::MAP_FAILED {
-            panic!("Failed to allocate memory: {}", io::Error::last_os_error());
+    // Main test loop
+    while running.load(Ordering::SeqCst) {
+        cycle_count += 1;
+        println!("\nCycle {} ---------", cycle_count);
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos() as usize;
+
+
+        let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
+        let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
+
+
+        // Step 1: Allocate memory with read+write permissions
+        let memory = unsafe {
+            let ptr = libc::mmap(
+                aligned_addr,
+                PAGE_SIZE,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0
+            );
+
+            if ptr == libc::MAP_FAILED {
+                eprintln!("Memory allocation failed");
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+
+            println!("Memory allocated: {:p}", ptr);
+            ptr
+        };
+
+        thread::sleep(Duration::from_millis(500));
+
+        // Step 2: Write data to memory
+        unsafe {
+            let dest = memory as *mut u8;
+
+            // Write sequence
+            for i in 0..64 {
+                *dest.add(i) = ((i + cycle_count) % 256) as u8;
+            }
+
+            // Write text
+            let text = format!("Cycle {} - Memory test", cycle_count);
+            let bytes = text.as_bytes();
+
+            let copy_len = bytes.len().min(TEST_PATTERN_SIZE - 64);
+            ptr::copy_nonoverlapping(bytes.as_ptr(), dest.add(64), copy_len);
+
+            println!("Data written (sequence + text)");
         }
 
-        println!("Memory allocated at address: {:p}", ptr);
-        ptr
-    };
-    
-    thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(500));
 
-    println!("\n[Step 2] Writing test pattern to memory...");
-    
-    unsafe {
-        let dest = memory as *mut u8;
-        
-        for i in 0..64 {
-            *dest.add(i) = i as u8;
-        }
-        
-        let text = b"This is a test pattern for memory tracing. ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.";
-        ptr::copy_nonoverlapping(text.as_ptr(), dest.add(64), text.len());
+        // Step 3: Change memory permissions to read+execute
+        unsafe {
+            let result = libc::mprotect(
+                memory,
+                PAGE_SIZE,
+                libc::PROT_READ | libc::PROT_EXEC
+            );
 
-        println!("Wrote test pattern (total {} bytes):", TEST_PATTERN_SIZE);
-        println!("- Bytes 0-63: Incrementing sequence (0-63)");
-        println!("- Bytes 64-{}: ASCII text", 64 + text.len() - 1);
-    }
-    
-    thread::sleep(Duration::from_secs(1));
-
-    println!("\n[Step 3] Changing memory permissions to RX (read + execute)...");
-    
-    unsafe {
-        let result = libc::mprotect(
-            memory,
-            PAGE_SIZE,
-            libc::PROT_READ | libc::PROT_EXEC  // 改为读执行权限
-        );
-
-        if result != 0 {
-            panic!("Failed to change memory permissions: {}", io::Error::last_os_error());
+            if result == 0 {
+                println!("Memory now executable");
+            }
         }
 
-        println!("Memory permissions changed to read+execute");
-    }
-    
-    thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_millis(500));
 
-    println!("\n[Step 4] Freeing memory...");
-    
-    unsafe {
-        libc::munmap(memory, PAGE_SIZE);
-        println!("Memory freed");
+        // Step 4: Free memory
+        unsafe {
+            libc::munmap(memory, PAGE_SIZE);
+            println!("Memory freed");
+        }
+
+        // Wait before next cycle (varied timing)
+        let wait_time = 1 + (cycle_count % 2);
+        thread::sleep(Duration::from_secs(wait_time as u64));
     }
-    
-    thread::sleep(Duration::from_secs(1));
+
+    println!("\nTest completed: {} cycles", cycle_count);
 }
