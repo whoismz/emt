@@ -62,6 +62,26 @@ pub struct Page {
     pub content: Option<Vec<u8>>,
 }
 
+impl Page {
+    pub fn new(addr: usize, size: usize, timestamp: SystemTime, source_file: Option<PathBuf>) -> Self {
+        Self {
+            addr,
+            size,
+            timestamp,
+            source_file,
+            content: None,
+        }
+    }
+    
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+    
+    pub fn is_same(&self, other: &Self) -> bool {
+        self.addr == other.addr && self.size == other.size
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,6 +6,9 @@ use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{Event, EventType, Page};
 use crate::utils;
 
+const PAGE_SIZE: usize = 4096;
+const PAGE_MASK: usize = PAGE_SIZE - 1;
+
 pub struct EventHandler {
     target_pid: i32,
     event_counter: AtomicUsize,
@@ -21,6 +24,38 @@ impl EventHandler {
             known_pages: HashMap::new(),
             memory_analyzer: MemoryAnalyzer::new(target_pid),
         }
+    }
+
+    fn get_pages_from_event(event: Event) -> Vec<Page> {
+        let event_addr = event.addr;
+        let event_size = event.size;
+        let event_timestamp = event.timestamp;
+
+        if event_size == 0 {
+            return vec![];
+        }
+
+        let event_end = event_addr + event_size;
+
+        let first_page_addr = event_addr & !PAGE_MASK;
+
+        let last_page_addr = (event_end - 1) & !PAGE_MASK;
+
+        let mut pages = Vec::new();
+        let mut current_page_addr = first_page_addr;
+
+        while current_page_addr <= last_page_addr {
+            pages.push(Page {
+                addr: current_page_addr,
+                size: PAGE_SIZE,
+                timestamp:event_timestamp,
+                source_file: None,
+                content: None,
+            });
+            current_page_addr += PAGE_SIZE;
+        }
+
+        pages
     }
 
     pub fn process(&mut self, event: Event) -> bool {
@@ -43,34 +78,25 @@ impl EventHandler {
         }
 
         match event.event_type {
-            EventType::Map | EventType::Mprotect => {
-                if let Ok(pages) = self.memory_analyzer.get_executable_pages() {
-                    for page in pages {
-                        let page_end = page.addr + page.size;
-                        let event_end = event.addr + event.size;
-
-                        if page.addr < event_end && page_end > event.addr {
-                            if !self.known_pages.contains_key(&page.addr) {
-                                self.known_pages.insert(page.addr, page);
-                            }
-                        }
-                    }
+            EventType::Map => {
+                let event_pages = EventHandler::get_pages_from_event(event);
+                for page in event_pages {
+                    self.known_pages.insert(page.addr, page);
                 }
             }
-            EventType::Unmap => {
-                let unmap_start = event.addr;
-                let unmap_end = event.addr + event.size;
-                let mut to_remove = vec![];
 
-                for (&addr, page) in &self.known_pages {
-                    let page_end = addr + page.size;
-                    if addr < unmap_end && page_end > unmap_start {
-                        to_remove.push(addr);
-                    }
+            EventType::Mprotect => {
+                let event_pages = EventHandler::get_pages_from_event(event);
+                for page in event_pages {
+                    self.known_pages.insert(page.addr, page);
                 }
+            }
 
-                for addr in to_remove {
-                    self.known_pages.remove(&addr);
+            EventType::Unmap => {
+                let event_pages = EventHandler::get_pages_from_event(event);
+
+                for page in event_pages {
+                    self.known_pages.remove(&page.addr);
                 }
             }
         }
