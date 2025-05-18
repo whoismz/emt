@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
+use log::debug;
 use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{Event, EventType, Page};
 use crate::utils;
@@ -27,8 +27,12 @@ impl EventHandler {
             return false;
         }
 
+        if event.pid != self.target_pid {
+            return true;
+        }
+
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
-        println!(
+        debug!(
             "{}: type={:?}, addr={:x}, size={}",
             event_id, event.event_type, event.addr, event.size
         );
@@ -70,9 +74,5 @@ impl EventHandler {
             }
         }
         true
-    }
-
-    pub fn known_page_count(&self) -> usize {
-        self.known_pages.len()
     }
 }

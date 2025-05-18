@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -8,7 +6,7 @@ use anyhow::Result;
 
 use crate::bpf_runtime::BpfRuntime;
 use crate::event_handler::EventHandler;
-use crate::models::{Event, EventType, Page};
+use crate::models::{Event, EventType, };
 
 pub struct Tracer {
     target_pid: i32,
@@ -16,6 +14,8 @@ pub struct Tracer {
     event_tx: Option<Sender<Event>>,
     thread_handle: Option<thread::JoinHandle<()>>,
 }
+
+const BPF_OBJECT: &[u8] = include_bytes!("../src/bpf/memory_tracer_ringbuf.bpf.o");
 
 impl Tracer {
     pub fn new(target_pid: i32) -> Self {
@@ -81,10 +81,11 @@ impl Tracer {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
         
-        // record currently known executable memory pages
-        let mut known_pages: HashMap<usize, Page> = HashMap::new();
-
-        bpf_runtime.start("./src/bpf/memory_tracer_ringbuf.bpf.o")?;
+        let temp_dir = std::env::temp_dir();
+        let bpf_path = temp_dir.join("memory_tracer_ringbuf.bpf.o");
+        
+        std::fs::write(&bpf_path, BPF_OBJECT)?;
+        bpf_runtime.start(bpf_path.to_str().unwrap())?;
 
         // main loop for events from BPF
         let mut running = true;
@@ -104,11 +105,6 @@ impl Tracer {
         }
 
         bpf_runtime.stop()?;
-
-        println!(
-            "Memory tracer stopped. Logged {} executable pages.",
-            known_pages.len()
-        );
 
         Ok(())
     }
