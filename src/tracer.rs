@@ -3,10 +3,10 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
-
+use log::error;
 use crate::bpf_runtime::BpfRuntime;
 use crate::event_handler::EventHandler;
-use crate::models::{Event, EventType, };
+use crate::models::{Event, EventType};
 
 pub struct Tracer {
     target_pid: i32,
@@ -39,7 +39,7 @@ impl Tracer {
 
         let thread_handle = thread::spawn(move || {
             if let Err(e) = Self::run(target_pid, event_tx, event_rx) {
-                eprintln!("Tracer error: {:?}", e);
+                error!("Tracer error: {:?}", e);
             }
         });
 
@@ -80,10 +80,10 @@ impl Tracer {
     fn run(target_pid: i32, event_tx: Sender<Event>, event_rx: Receiver<Event>) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
-        
+
         let temp_dir = std::env::temp_dir();
         let bpf_path = temp_dir.join("memory_tracer_ringbuf.bpf.o");
-        
+
         std::fs::write(&bpf_path, BPF_OBJECT)?;
         bpf_runtime.start(bpf_path.to_str().unwrap())?;
 
@@ -92,7 +92,7 @@ impl Tracer {
         while running {
             // poll BPF events
             if let Err(e) = bpf_runtime.poll(Duration::from_millis(100)) {
-                eprintln!("Error polling BPF events: {:?}", e);
+                error!("Error polling BPF events: {:?}", e);
             }
 
             // check for received memory events

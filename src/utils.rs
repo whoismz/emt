@@ -1,3 +1,5 @@
+use log::debug;
+
 pub fn print_memory_content(content: &[u8], address: usize) {
     const BYTES_PER_ROW: usize = 16;
     for (i, chunk) in content.chunks(BYTES_PER_ROW).enumerate() {
@@ -26,15 +28,14 @@ pub fn print_memory_content(content: &[u8], address: usize) {
             }
         }
 
-        println!("{}", hex_line);
+        debug!("{}", hex_line);
 
         if i >= 15 && content.len() > 16 * 16 {
-            println!(
+            debug!(
                 "... (showing only first 16 lines of {} total)",
                 (content.len() + BYTES_PER_ROW - 1) / BYTES_PER_ROW
             );
             break;
         }
     }
-    println!();
 }

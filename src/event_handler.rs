@@ -1,6 +1,7 @@
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use log::debug;
+
 use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{Event, EventType, Page};
 use crate::utils;
