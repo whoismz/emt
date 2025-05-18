@@ -113,3 +113,259 @@ impl EventHandler {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Event, EventType};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn create_test_event(event_type: EventType, addr: usize, size: usize, pid: i32) -> Event {
+        Event {
+            event_type,
+            addr,
+            size,
+            timestamp: SystemTime::now(),
+            pid,
+            content: None,
+        }
+    }
+
+    #[test]
+    fn test_event_handler_creation() {
+        let handler = EventHandler::new(1234);
+        assert_eq!(handler.target_pid, 1234);
+        assert_eq!(handler.known_pages.len(), 0);
+        assert_eq!(handler.event_counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_get_pages_from_event_single_page() {
+        let event = create_test_event(EventType::Map, 0x1100, 100, 1234);
+        let pages = EventHandler::get_pages_from_event(event);
+
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].addr, 0x1000);
+        assert_eq!(pages[0].size, PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_get_pages_from_event_multiple_pages() {
+        let event = create_test_event(EventType::Map, 0x1F00, 0x400, 1234);
+        let pages = EventHandler::get_pages_from_event(event);
+
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].addr, 0x1000);
+        assert_eq!(pages[1].addr, 0x2000);
+    }
+
+    #[test]
+    fn test_get_pages_from_event_page_aligned() {
+        let event = create_test_event(EventType::Map, 0x2000, 0x1000, 1234);
+        let pages = EventHandler::get_pages_from_event(event);
+
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].addr, 0x2000);
+    }
+
+    #[test]
+    fn test_get_pages_from_event_zero_size() {
+        let event = create_test_event(EventType::Map, 0x1000, 0, 1234);
+        let pages = EventHandler::get_pages_from_event(event);
+
+        assert_eq!(pages.len(), 0);
+    }
+
+    #[test]
+    fn test_get_pages_from_event_large_span() {
+        let event = create_test_event(EventType::Map, 0x1800, 0x3000, 1234);
+        let pages = EventHandler::get_pages_from_event(event);
+
+        assert_eq!(pages.len(), 4);
+        assert_eq!(pages[0].addr, 0x1000);
+        assert_eq!(pages[1].addr, 0x2000);
+        assert_eq!(pages[2].addr, 0x3000);
+        assert_eq!(pages[3].addr, 0x4000);
+    }
+
+    #[test]
+    fn test_process_wrong_pid() {
+        let mut handler = EventHandler::new(1234);
+        let event = create_test_event(EventType::Map, 0x1000, 0x1000, 5678);
+
+        let result = handler.process(event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 0);
+    }
+
+    #[test]
+    fn test_process_shutdown_event() {
+        let mut handler = EventHandler::new(1234);
+        let event = Event {
+            event_type: EventType::Map,
+            addr: 0x1000,
+            size: 0x1000,
+            timestamp: SystemTime::now(),
+            pid: -1,
+            content: None,
+        };
+
+        let result = handler.process(event);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_process_map_event() {
+        let mut handler = EventHandler::new(1234);
+        let event = create_test_event(EventType::Map, 0x1000, 0x1000, 1234);
+
+        let result = handler.process(event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 1);
+        assert!(handler.known_pages.contains_key(&0x1000));
+    }
+
+    #[test]
+    fn test_process_map_event_multiple_pages() {
+        let mut handler = EventHandler::new(1234);
+        let event = create_test_event(EventType::Map, 0x1000, 0x3000, 1234);
+
+        let result = handler.process(event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 3);
+        assert!(handler.known_pages.contains_key(&0x1000));
+        assert!(handler.known_pages.contains_key(&0x2000));
+        assert!(handler.known_pages.contains_key(&0x3000));
+    }
+
+    #[test]
+    fn test_process_mprotect_event() {
+        let mut handler = EventHandler::new(1234);
+        let event = create_test_event(EventType::Mprotect, 0x2000, 0x1000, 1234);
+
+        let result = handler.process(event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 1);
+        assert!(handler.known_pages.contains_key(&0x2000));
+    }
+
+    #[test]
+    fn test_process_unmap_event() {
+        let mut handler = EventHandler::new(1234);
+
+        let map_event = create_test_event(EventType::Map, 0x1000, 0x2000, 1234);
+        handler.process(map_event);
+        assert_eq!(handler.known_pages.len(), 2);
+
+        let unmap_event = create_test_event(EventType::Unmap, 0x1000, 0x1000, 1234);
+        let result = handler.process(unmap_event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 1);
+        assert!(!handler.known_pages.contains_key(&0x1000));
+        assert!(handler.known_pages.contains_key(&0x2000));
+    }
+
+    #[test]
+    fn test_process_unmap_partial_overlap() {
+        let mut handler = EventHandler::new(1234);
+
+        let map_event = create_test_event(EventType::Map, 0x1000, 0x4000, 1234);
+        handler.process(map_event);
+        assert_eq!(handler.known_pages.len(), 4);
+
+        let unmap_event = create_test_event(EventType::Unmap, 0x2000, 0x2000, 1234);
+        handler.process(unmap_event);
+        assert_eq!(handler.known_pages.len(), 2);
+        assert!(handler.known_pages.contains_key(&0x1000));
+        assert!(!handler.known_pages.contains_key(&0x2000));
+        assert!(!handler.known_pages.contains_key(&0x3000));
+        assert!(handler.known_pages.contains_key(&0x4000));
+    }
+
+    #[test]
+    fn test_process_overlapping_events() {
+        let mut handler = EventHandler::new(1234);
+
+        let event1 = create_test_event(EventType::Map, 0x1000, 0x1000, 1234);
+        handler.process(event1);
+
+        let event2 = create_test_event(EventType::Map, 0x1800, 0x1000, 1234);
+        handler.process(event2);
+
+        assert_eq!(handler.known_pages.len(), 2);
+        assert!(handler.known_pages.contains_key(&0x1000));
+        assert!(handler.known_pages.contains_key(&0x2000));
+    }
+
+    #[test]
+    fn test_event_counter_increment() {
+        let mut handler = EventHandler::new(1234);
+        let initial_counter = handler.event_counter.load(Ordering::SeqCst);
+
+        let event1 = create_test_event(EventType::Map, 0x1000, 0x1000, 1234);
+        handler.process(event1);
+        assert_eq!(
+            handler.event_counter.load(Ordering::SeqCst),
+            initial_counter + 1
+        );
+
+        let event2 = create_test_event(EventType::Mprotect, 0x2000, 0x1000, 1234);
+        handler.process(event2);
+        assert_eq!(
+            handler.event_counter.load(Ordering::SeqCst),
+            initial_counter + 2
+        );
+    }
+
+    #[test]
+    fn test_page_timestamp_preservation() {
+        let mut handler = EventHandler::new(1234);
+        let test_time = UNIX_EPOCH + Duration::from_secs(12345);
+
+        let event = Event {
+            event_type: EventType::Map,
+            addr: 0x1000,
+            size: 0x1000,
+            timestamp: test_time,
+            pid: 1234,
+            content: None,
+        };
+
+        handler.process(event);
+
+        let page = handler.known_pages.get(&0x1000).unwrap();
+        assert_eq!(page.timestamp, test_time);
+    }
+
+    #[test]
+    fn test_boundary_conditions() {
+        let mut handler = EventHandler::new(1234);
+
+        let event = create_test_event(EventType::Map, 0x1F00, 0x100, 1234);
+        handler.process(event);
+        assert_eq!(handler.known_pages.len(), 1);
+        assert!(handler.known_pages.contains_key(&0x1000));
+
+        let event2 = create_test_event(EventType::Map, 0x2000, 0x100, 1234);
+        handler.process(event2);
+        assert_eq!(handler.known_pages.len(), 2);
+        assert!(handler.known_pages.contains_key(&0x2000));
+    }
+
+    #[test]
+    fn test_process_with_content() {
+        let mut handler = EventHandler::new(1234);
+        let event = Event {
+            event_type: EventType::Map,
+            addr: 0x1000,
+            size: 0x1000,
+            timestamp: SystemTime::now(),
+            pid: 1234,
+            content: Some(vec![0x90, 0x90, 0x90, 0x90]), // NOP instructions
+        };
+
+        let result = handler.process(event);
+        assert!(result);
+        assert_eq!(handler.known_pages.len(), 1);
+    }
+}
