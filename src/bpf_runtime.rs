@@ -192,7 +192,6 @@ impl From<RawMemoryEvent> for Event {
             event_type,
             addr: raw.addr as usize,
             size: raw.length as usize,
-            flag: 0, // TODO
             timestamp: UNIX_EPOCH + Duration::from_nanos(raw.timestamp),
             pid: raw.pid as i32,
             content,

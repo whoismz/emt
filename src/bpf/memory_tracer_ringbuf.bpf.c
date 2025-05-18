@@ -103,8 +103,8 @@ SEC("tracepoint/syscalls/sys_enter_mmap")
 int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
     // bpf_printk("enter_mmap called");
 
-    // __u64 prot = ctx->args[2];
-    // if (!(prot & PROT_EXEC)) return 0;
+     __u64 prot = ctx->args[2];
+     if (!(prot & PROT_EXEC)) return 0;
 
     __u64 key = bpf_get_current_pid_tgid();
 
@@ -152,8 +152,8 @@ SEC("tracepoint/syscalls/sys_enter_mprotect")
 int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
     // bpf_printk("mprotect called");
 
-    // __u64 prot = ctx->args[2];
-    // if (!(prot & PROT_EXEC)) return 0;
+     __u64 prot = ctx->args[2];
+     if (!(prot & PROT_EXEC)) return 0;
 
     __u64 key = bpf_get_current_pid_tgid();
 

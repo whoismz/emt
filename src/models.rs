@@ -13,7 +13,6 @@ pub struct Event {
     pub event_type: EventType,
     pub addr: usize,
     pub size: usize,
-    pub flag: u32,
     pub timestamp: SystemTime,
     pub pid: i32,
     pub content: Option<Vec<u8>>,
@@ -26,7 +25,6 @@ impl Event {
             event_type: EventType::Unmap,
             addr: 0,
             size: 0,
-            flag: 0,
             timestamp: SystemTime::now(),
             pid: 0,
             content: None,
@@ -59,7 +57,6 @@ impl Event {
 pub struct Page {
     pub addr: usize,
     pub size: usize,
-    pub flag: u32,
     pub timestamp: SystemTime,
     pub source_file: Option<PathBuf>,
     pub content: Option<Vec<u8>>,

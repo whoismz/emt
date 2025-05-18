@@ -38,7 +38,6 @@ impl MemoryAnalyzer {
                     timestamp: SystemTime::now(),
                     source_file,
                     content: None,
-                    flag: Self::perms_to_flags(&perms_str),
                 });
             }
         }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -8,9 +8,7 @@ use anyhow::Result;
 
 use crate::bpf_runtime::BpfRuntime;
 use crate::event_handler::EventHandler;
-use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{Event, EventType, Page};
-use crate::utils;
 
 pub struct Tracer {
     target_pid: i32,
@@ -62,7 +60,6 @@ impl Tracer {
                 event_type: EventType::Unmap,
                 addr: 0,
                 size: 0,
-                flag: 0,
                 timestamp: SystemTime::now(),
                 pid: -1,
                 content: None,
@@ -83,14 +80,11 @@ impl Tracer {
     fn run(target_pid: i32, event_tx: Sender<Event>, event_rx: Receiver<Event>) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
-        let memory_analyzer = MemoryAnalyzer::new(target_pid);
-
+        
         // record currently known executable memory pages
         let mut known_pages: HashMap<usize, Page> = HashMap::new();
 
         bpf_runtime.start("./src/bpf/memory_tracer_ringbuf.bpf.o")?;
-
-        static EVENT_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
         // main loop for events from BPF
         let mut running = true;
