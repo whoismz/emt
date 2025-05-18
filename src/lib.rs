@@ -11,13 +11,15 @@
 //! # }
 //! ```
 
-mod analyzer;
-mod ebpf;
-mod handler;
+mod bpf_runtime;
+mod event_handler;
+mod memory_analyzer;
 mod models;
+mod tracer;
+mod utils;
 
-pub use handler::Handler;
 pub use models::{Event, EventType};
+pub use tracer::Tracer;
 
 /// Starts tracing executable memory of a process
 ///
@@ -26,8 +28,8 @@ pub use models::{Event, EventType};
 ///
 /// # Returns
 /// Initialized and started `MemoryTracer` instance
-pub fn trace_process(pid: i32) -> anyhow::Result<Handler> {
-    let mut tracer = Handler::new(pid);
+pub fn trace_process(pid: i32) -> anyhow::Result<Tracer> {
+    let mut tracer = Tracer::new(pid);
     tracer.start()?;
     Ok(tracer)
 }
