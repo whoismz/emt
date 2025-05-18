@@ -26,7 +26,7 @@ impl Event {
             addr: 0,
             size: 0,
             timestamp: SystemTime::now(),
-            pid: 0,
+            pid: -1,
             content: None,
         }
     }
@@ -60,4 +60,64 @@ pub struct Page {
     pub timestamp: SystemTime,
     pub source_file: Option<PathBuf>,
     pub content: Option<Vec<u8>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn test_event_creation() {
+        let event = Event {
+            event_type: EventType::Map,
+            addr: 0x1000,
+            size: 4096,
+            timestamp: UNIX_EPOCH + Duration::from_secs(1000),
+            pid: 1234,
+            content: Some(vec![0x90, 0x90, 0x90, 0x90]),
+        };
+
+        assert_eq!(event.addr, 0x1000);
+        assert_eq!(event.size, 4096);
+        assert_eq!(event.pid, 1234);
+        assert!(matches!(event.event_type, EventType::Map));
+        assert!(event.content.is_some());
+        assert_eq!(event.content.as_ref().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn test_event_shutdown() {
+        let shutdown_event = Event::shutdown();
+
+        assert!(matches!(shutdown_event.event_type, EventType::Unmap));
+        assert_eq!(shutdown_event.addr, 0);
+        assert_eq!(shutdown_event.size, 0);
+        assert_eq!(shutdown_event.pid, -1);
+        assert!(shutdown_event.content.is_none());
+    }
+
+    #[test]
+    fn test_event_is_shutdown() {
+        let normal_event = Event {
+            event_type: EventType::Map,
+            addr: 0x1000,
+            size: 4096,
+            timestamp: UNIX_EPOCH,
+            pid: 1234,
+            content: None,
+        };
+
+        let shutdown_event = Event {
+            event_type: EventType::Unmap,
+            addr: 0,
+            size: 0,
+            timestamp: UNIX_EPOCH,
+            pid: -1,
+            content: None,
+        };
+
+        assert!(!normal_event.is_shutdown());
+        assert!(shutdown_event.is_shutdown());
+    }
 }

@@ -66,7 +66,7 @@ impl Tracer {
             });
         }
 
-        // wait for thread to complete
+        // wait for the thread to complete
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();
         }

@@ -54,7 +54,7 @@ impl BpfRuntime {
             .load()
             .context("Failed to load BPF object")?;
 
-        // Attach probes and initialize ring buffer
+        // Attach probes and initialize the ring buffer
         self.attach_probes(&mut bpf_object)?;
         self.init_ring_buffer(&bpf_object)?;
 
