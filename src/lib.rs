@@ -12,12 +12,12 @@
 //! ```
 
 mod bpf_runtime;
+mod error;
 mod event_handler;
 mod memory_analyzer;
 mod models;
 mod tracer;
 mod utils;
-mod error;
 
 pub use error::EmtError;
 pub use models::{Event, EventType};
@@ -34,7 +34,7 @@ pub fn trace_process(pid: i32) -> anyhow::Result<Tracer> {
     if !std::path::Path::new(&format!("/proc/{}", pid)).exists() {
         anyhow::bail!("No such PID: {}", pid);
     }
-    
+
     let mut tracer = Tracer::new(pid);
     tracer.start()?;
     Ok(tracer)

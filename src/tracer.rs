@@ -2,11 +2,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use anyhow::Result;
-use log::error;
 use crate::bpf_runtime::BpfRuntime;
 use crate::event_handler::EventHandler;
 use crate::models::{Event, EventType};
+use anyhow::Result;
+use log::error;
 
 pub struct Tracer {
     target_pid: i32,
@@ -101,6 +101,7 @@ impl Tracer {
                     running = false;
                     break;
                 }
+                handler.print_known_pages();
             }
         }
 

@@ -36,9 +36,7 @@ impl EventHandler {
         }
 
         let event_end = event_addr + event_size;
-
         let first_page_addr = event_addr & !PAGE_MASK;
-
         let last_page_addr = (event_end - 1) & !PAGE_MASK;
 
         let mut pages = Vec::new();
@@ -48,7 +46,7 @@ impl EventHandler {
             pages.push(Page {
                 addr: current_page_addr,
                 size: PAGE_SIZE,
-                timestamp:event_timestamp,
+                timestamp: event_timestamp,
                 source_file: None,
                 content: None,
             });
@@ -56,6 +54,18 @@ impl EventHandler {
         }
 
         pages
+    }
+
+    pub fn print_known_pages(&self) {
+        // sorted by address
+        let mut sorted_pages: Vec<_> = self.known_pages.iter().collect();
+        sorted_pages.sort_by_key(|(addr, _)| *addr);
+
+        for (&addr, page) in sorted_pages {
+            let timestamp = page.timestamp;
+
+            debug!("0x{:016x} - {:?}", addr, timestamp,);
+        }
     }
 
     pub fn process(&mut self, event: Event) -> bool {

@@ -63,7 +63,12 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(addr: usize, size: usize, timestamp: SystemTime, source_file: Option<PathBuf>) -> Self {
+    pub fn new(
+        addr: usize,
+        size: usize,
+        timestamp: SystemTime,
+        source_file: Option<PathBuf>,
+    ) -> Self {
         Self {
             addr,
             size,
@@ -72,11 +77,11 @@ impl Page {
             content: None,
         }
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
-    
+
     pub fn is_same(&self, other: &Self) -> bool {
         self.addr == other.addr && self.size == other.size
     }
