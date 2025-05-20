@@ -1,12 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
 use crate::models::{Event, EventType};
+use crate::utils::boot_time_seconds;
 
 const MAX_SNAPSHOT_SIZE: usize = 256;
 
@@ -188,11 +189,16 @@ impl From<RawMemoryEvent> for Event {
             None
         };
 
+        let boot_time = boot_time_seconds();
+        let event_time = SystemTime::UNIX_EPOCH
+            + Duration::from_secs(boot_time)
+            + Duration::from_nanos(raw.timestamp);
+
         Event {
             event_type,
             addr: raw.addr as usize,
             size: raw.length as usize,
-            timestamp: UNIX_EPOCH + Duration::from_nanos(raw.timestamp),
+            timestamp: event_time,
             pid: raw.pid as i32,
             content,
         }
@@ -553,7 +559,7 @@ mod tests {
         let data = unsafe {
             std::slice::from_raw_parts(
                 &raw_event as *const _ as *const u8,
-                std::mem::size_of::<RawMemoryEvent>(),
+                size_of::<RawMemoryEvent>(),
             )
         };
 
@@ -584,7 +590,7 @@ mod tests {
         let data = unsafe {
             std::slice::from_raw_parts(
                 &raw_event as *const _ as *const u8,
-                std::mem::size_of::<RawMemoryEvent>(),
+                size_of::<RawMemoryEvent>(),
             )
         };
 

@@ -1,10 +1,10 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::bpf_runtime::BpfRuntime;
 use crate::event_handler::EventHandler;
-use crate::models::{Event, EventType};
+use crate::models::{Event, Page};
 use anyhow::Result;
 use log::error;
 
@@ -12,12 +12,13 @@ pub struct Tracer {
     target_pid: i32,
     running: bool,
     event_tx: Option<Sender<Event>>,
-    thread_handle: Option<thread::JoinHandle<()>>,
+    thread_handle: Option<thread::JoinHandle<Vec<Page>>>,
 }
 
 const BPF_OBJECT: &[u8] = include_bytes!("../src/bpf/memory_tracer_ringbuf.bpf.o");
 
 impl Tracer {
+    /// Creates a new tracer for the specified process ID
     pub fn new(target_pid: i32) -> Self {
         Self {
             target_pid,
@@ -27,6 +28,7 @@ impl Tracer {
         }
     }
 
+    /// Starts tracing the process
     pub fn start(&mut self) -> Result<()> {
         if self.running {
             return Ok(());
@@ -38,9 +40,13 @@ impl Tracer {
         let target_pid = self.target_pid;
 
         let thread_handle = thread::spawn(move || {
-            if let Err(e) = Self::run(target_pid, event_tx, event_rx) {
+            let mut pages = Vec::new();
+
+            if let Err(e) = Self::run(target_pid, event_tx, event_rx, &mut pages) {
                 error!("Tracer error: {:?}", e);
             }
+
+            pages
         });
 
         self.thread_handle = Some(thread_handle);
@@ -49,35 +55,38 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    /// Stops tracing and returns collected memory pages
+    pub fn stop(&mut self) -> Result<Vec<Page>> {
         if !self.running {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
-        // notify tracer thread to stop
+        // Notify a tracer thread to stop
         if let Some(tx) = &self.event_tx {
-            let _ = tx.send(Event {
-                event_type: EventType::Unmap,
-                addr: 0,
-                size: 0,
-                timestamp: SystemTime::now(),
-                pid: -1,
-                content: None,
-            });
+            let _ = tx.send(Event::shutdown());
         }
 
-        // wait for the thread to complete
-        if let Some(handle) = self.thread_handle.take() {
-            let _ = handle.join();
-        }
+        // Wait for the thread to complete and get collected pages
+        let pages = if let Some(handle) = self.thread_handle.take() {
+            handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("Thread join failed"))?
+        } else {
+            Vec::new()
+        };
 
         self.running = false;
         self.event_tx = None;
 
-        Ok(())
+        Ok(pages)
     }
 
-    fn run(target_pid: i32, event_tx: Sender<Event>, event_rx: Receiver<Event>) -> Result<()> {
+    fn run(
+        target_pid: i32,
+        event_tx: Sender<Event>,
+        event_rx: Receiver<Event>,
+        pages: &mut Vec<Page>,
+    ) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
 
@@ -101,11 +110,11 @@ impl Tracer {
                     running = false;
                     break;
                 }
-                handler.print_known_pages();
             }
         }
 
         bpf_runtime.stop()?;
+        *pages = handler.get_all_pages();
 
         Ok(())
     }
@@ -113,7 +122,9 @@ impl Tracer {
 
 impl Drop for Tracer {
     fn drop(&mut self) {
-        let _ = self.stop();
+        if self.running {
+            let _ = self.stop();
+        }
     }
 }
 

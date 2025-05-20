@@ -68,6 +68,10 @@ impl EventHandler {
         }
     }
 
+    pub fn get_all_pages(&self) -> Vec<Page> {
+        self.known_pages.values().cloned().collect()
+    }
+
     pub fn process(&mut self, event: Event) -> bool {
         if event.pid == -1 {
             return false;
@@ -79,8 +83,8 @@ impl EventHandler {
 
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
         debug!(
-            "{}: type={:?}, addr={:x}, size={}",
-            event_id, event.event_type, event.addr, event.size
+            "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}",
+            event_id, event.event_type, event.addr, event.size, event.timestamp,
         );
 
         if let Some(content) = &event.content {
@@ -361,7 +365,7 @@ mod tests {
             size: 0x1000,
             timestamp: SystemTime::now(),
             pid: 1234,
-            content: Some(vec![0x90, 0x90, 0x90, 0x90]), // NOP instructions
+            content: Some(vec![0x90, 0x90, 0x90, 0x90]),
         };
 
         let result = handler.process(event);

@@ -2,11 +2,26 @@
 //!
 //! # Examples
 //! ```
-//! use emt::trace_process;
+//! use emt::Tracer;
 //!
 //! # fn main() -> anyhow::Result<()> {
-//! let mut tracer = trace_process(1234)?;
-//! //  do work
+//! // Create a new tracer for a target process
+//! let mut tracer = Tracer::new(1214781);
+//!
+//! // Start tracing
+//! tracer.start()?;
+//!
+//! // Do some work while tracing
+//! std::thread::sleep(std::time::Duration::from_secs(2));
+//!
+//! // Stop tracing and get collected data
+//! let memory_data = tracer.stop()?;
+//!
+//! // Process collected memory pages
+//! for page in memory_data {
+//!     println!("0x{:016x} - {:?} - {:?}", page.addr, page.size, page.timestamp);
+//! }
+//!
 //! # Ok(())
 //! # }
 //! ```
@@ -20,42 +35,5 @@ mod tracer;
 mod utils;
 
 pub use error::EmtError;
-pub use models::{Event, EventType};
+pub use models::{Event, EventType, Page};
 pub use tracer::Tracer;
-
-/// Starts tracing executable memory of a process
-///
-/// # Arguments
-/// * `pid` - Target process ID
-///
-/// # Returns
-/// Initialized and started `MemoryTracer` instance
-pub fn trace_process(pid: i32) -> anyhow::Result<Tracer> {
-    if !std::path::Path::new(&format!("/proc/{}", pid)).exists() {
-        anyhow::bail!("No such PID: {}", pid);
-    }
-
-    let mut tracer = Tracer::new(pid);
-    tracer.start()?;
-    Ok(tracer)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_models() {
-        use crate::models::Page;
-        use std::time::SystemTime;
-
-        let page = Page {
-            addr: 0x1000,
-            size: 4096,
-            timestamp: SystemTime::now(),
-            source_file: None,
-            content: None,
-        };
-
-        assert_eq!(page.addr, 0x1000);
-        assert_eq!(page.size, 4096);
-    }
-}
