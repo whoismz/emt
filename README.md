@@ -1,30 +1,52 @@
 # emt
 Linux userspace executable memory tracer
 
+## Building
+```bash
+# clone the emt repository
+git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
+
+# build with sudo for eBPF
+sudo cargo build --release
+```
+
 ## Usage
 
-### Build
-```bash
-cargo build
-```
-### Help
-```bash
-sudo cargo run --bin emt-cli -- --help
-> Options:
-    -p, --pid PID                Process ID to trace
-    -c, --command COMMAND        Command to execute and trace
-    -o, --output DIR             Output directory for trace logs (default: ./output)
-    -s, --save-content           Save memory content
-    -d, --duration SECONDS       Duration to trace in seconds (0 = trace until Ctrl+C)
-    -h, --help                   Print help information
+### Library
+```rust
+// import the emt library
+use emt::Tracer;
+
+fn main() -> Result<()> {
+    // create a new tracer for a target process (PID)
+    let mut tracer = Tracer::new(2025);
+    
+    // start tracing
+    tracer.start()?;
+    
+    // wait seconds
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // stop tracing and get memory pages
+    let pages = tracer.stop()?;
+    
+    // process the pages you got
+    for page in pages {
+        println!(
+            "0x{:016x} - 0x{:016x} - {} bytes", 
+            page.addr, 
+            page.addr + page.size - 1,
+            page.size
+        );
+    }
+
+    Ok(())
+}
 ```
 
 ### Example
 ```bash
-// Terminal 1, copy the PID and do not forget to press Enter
+# use it as the target process to mmap, mprotect and unmap some memory
 sudo cargo run --example test_memory_changes
-
-// Terminal 2, paste the PID
-sudo cargo run --bin emt-cli -- -p [PID]
 ```
 

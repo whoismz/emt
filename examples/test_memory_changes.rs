@@ -14,7 +14,7 @@ fn main() {
 
     let _ = io::stdin().lock().lines().next();
 
-    // Setup Ctrl+C handler to exit loop gracefully
+    // Set up Ctrl+C handler to exit loop gracefully
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
@@ -42,7 +42,7 @@ fn main() {
         let random_addr = ((process::id() as usize) << 12) ^ (cycle_count << 20) ^ nanos;
         let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
 
-        // Step 1: Allocate memory with read+write permissions
+        // Step 1: allocate memory with read+write permissions
         let memory = unsafe {
             let ptr = libc::mmap(
                 aligned_addr,
@@ -65,11 +65,11 @@ fn main() {
 
         thread::sleep(Duration::from_millis(500));
 
-        // Step 2: Write data to memory
+        // Step 2: write data to memory
         unsafe {
             let dest = memory as *mut u8;
 
-            // Write sequence
+            // Write a sequence
             for i in 0..64 {
                 *dest.add(i) = ((i + cycle_count) % 256) as u8;
             }
@@ -86,7 +86,7 @@ fn main() {
 
         thread::sleep(Duration::from_millis(500));
 
-        // Step 3: Change memory permissions to read+execute
+        // Step 3: change memory permissions to read+execute
         unsafe {
             let result = libc::mprotect(memory, PAGE_SIZE, libc::PROT_READ | libc::PROT_EXEC);
 
@@ -97,13 +97,13 @@ fn main() {
 
         thread::sleep(Duration::from_millis(500));
 
-        // Step 4: Free memory
+        // Step 4: free memory
         unsafe {
-            libc::munmap(memory, PAGE_SIZE);
+            //libc::munmap(memory, PAGE_SIZE);
             println!("Memory freed");
         }
 
-        // Wait before next cycle (varied timing)
+        // Wait before the next cycle (varied timing)
         let wait_time = 1 + (cycle_count % 2);
         thread::sleep(Duration::from_secs(wait_time as u64));
     }

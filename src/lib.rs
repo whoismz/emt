@@ -2,28 +2,29 @@
 //!
 //! # Examples
 //! ```
+//! // import the emt library
 //! use emt::Tracer;
 //!
-//! # fn main() -> anyhow::Result<()> {
-//! // Create a new tracer for a target process
-//! let mut tracer = Tracer::new(1214781);
+//! fn main() -> anyhow::Result<()> {
+//!     // create a new tracer for a target process
+//!     let mut tracer = Tracer::new(2025);
 //!
-//! // Start tracing
-//! tracer.start()?;
+//!     // start tracing
+//!     tracer.start()?;
 //!
-//! // Do some work while tracing
-//! std::thread::sleep(std::time::Duration::from_secs(2));
+//!     // wait seconds
+//!     std::thread::sleep(std::time::Duration::from_secs(10));
 //!
-//! // Stop tracing and get collected data
-//! let memory_data = tracer.stop()?;
+//!     // stop tracing and get memory pages
+//!     let pages = tracer.stop()?;
 //!
-//! // Process collected memory pages
-//! for page in memory_data {
-//!     println!("0x{:016x} - {:?} - {:?}", page.addr, page.size, page.timestamp);
+//!     // process the pages you got
+//!     for page in pages {
+//!         println!("0x{:016x} - 0x{:016x} - {} bytes", page.addr, page.addr + page.size - 1, page.size);
+//!     }
+//!
+//!     Ok(())
 //! }
-//!
-//! # Ok(())
-//! # }
 //! ```
 
 mod bpf_runtime;
