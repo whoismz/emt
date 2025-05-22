@@ -2,7 +2,6 @@ use log::debug;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::memory_analyzer::MemoryAnalyzer;
 use crate::models::{Event, EventType, Page};
 use crate::utils;
 
@@ -13,7 +12,6 @@ pub struct EventHandler {
     target_pid: i32,
     event_counter: AtomicUsize,
     known_pages: HashMap<usize, Page>,
-    memory_analyzer: MemoryAnalyzer,
 }
 
 impl EventHandler {
@@ -22,7 +20,6 @@ impl EventHandler {
             target_pid,
             event_counter: AtomicUsize::new(1),
             known_pages: HashMap::new(),
-            memory_analyzer: MemoryAnalyzer::new(target_pid),
         }
     }
 
@@ -54,18 +51,6 @@ impl EventHandler {
         }
 
         pages
-    }
-
-    pub fn print_known_pages(&self) {
-        // sorted by address
-        let mut sorted_pages: Vec<_> = self.known_pages.iter().collect();
-        sorted_pages.sort_by_key(|(addr, _)| *addr);
-
-        for (&addr, page) in sorted_pages {
-            let timestamp = page.timestamp;
-
-            debug!("0x{:016x} - {:?}", addr, timestamp,);
-        }
     }
 
     pub fn get_all_pages(&self) -> Vec<Page> {

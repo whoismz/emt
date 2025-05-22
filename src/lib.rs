@@ -29,7 +29,6 @@
 mod bpf_runtime;
 mod error;
 mod event_handler;
-mod memory_analyzer;
 mod models;
 mod tracer;
 mod utils;
