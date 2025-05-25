@@ -2,7 +2,10 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
+#define PROT_READ 0x1
+#define PROT_WRITE 0x2
 #define PROT_EXEC 0x4
+
 #define MAPPING_ANONYMOUS 0x20
 #define MAX_SNAPSHOT_SIZE 256
 #define EVENT_TYPE_MMAP 0

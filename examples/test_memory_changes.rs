@@ -43,12 +43,13 @@ fn main() {
         let aligned_addr = (random_addr & 0x0000007FFFFF0000) as *mut libc::c_void;
 
         // Step 1: allocate memory with read+write permissions
+        println!("Step 1");
         let memory = unsafe {
             let ptr = libc::mmap(
                 aligned_addr,
                 PAGE_SIZE,
                 libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                libc::MAP_SHARED | libc::MAP_ANONYMOUS,
                 -1,
                 0,
             );
@@ -65,7 +66,8 @@ fn main() {
 
         thread::sleep(Duration::from_millis(500));
 
-        // Step 2: write data to memory
+        // Step 2: initial write to memory
+        println!("Step 2");
         unsafe {
             let dest = memory as *mut u8;
 
@@ -75,31 +77,66 @@ fn main() {
             }
 
             // Write text
-            let text = format!("Cycle {} - Memory test", cycle_count);
+            let text = format!("Cycle {} - PRE-PROTECT", cycle_count);
             let bytes = text.as_bytes();
 
             let copy_len = bytes.len().min(TEST_PATTERN_SIZE - 64);
             ptr::copy_nonoverlapping(bytes.as_ptr(), dest.add(64), copy_len);
 
-            println!("Data written (sequence + text)");
+            println!("Initial data written (sequence + text)");
         }
 
         thread::sleep(Duration::from_millis(500));
 
         // Step 3: change memory permissions to read+execute
+        println!("Step 3");
         unsafe {
-            let result = libc::mprotect(memory, PAGE_SIZE, libc::PROT_READ | libc::PROT_EXEC);
+            let result = libc::mprotect(
+                memory,
+                PAGE_SIZE,
+                libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
+            );
 
             if result == 0 {
                 println!("Memory now executable");
+            } else {
+                eprintln!(
+                    "mprotect failed with error: {}",
+                    std::io::Error::last_os_error()
+                );
             }
         }
 
         thread::sleep(Duration::from_millis(500));
 
-        // Step 4: free memory
+        // Step 4: attempt to write to memory after protection change
+        println!("Step 4");
         unsafe {
-            //libc::munmap(memory, PAGE_SIZE);
+            let dest = memory as *mut u8;
+
+            // This writing will likely cause a segmentation fault since the memory is no longer writable
+            // We'll catch the signal if it occurs (if a signal handler is set up)
+            println!("Attempting to write to protected memory...");
+
+            // Try writing to different offsets
+            for i in (0..64).step_by(8) {
+                *dest.add(i) = ((i + cycle_count + 128) % 256) as u8;
+            }
+
+            // Try writing text
+            let text = format!("Cycle {} - POST-PROTECT", cycle_count);
+            let bytes = text.as_bytes();
+            ptr::copy_nonoverlapping(bytes.as_ptr(), dest.add(80), bytes.len().min(32));
+
+            println!("Post-protect write completed (if no crash occurred)");
+        }
+
+        thread::sleep(Duration::from_millis(500));
+
+        // Step 5: free memory
+        println!("Step 5");
+        unsafe {
+            // libc::munmap(memory, PAGE_SIZE);
             println!("Memory freed");
         }
 

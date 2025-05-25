@@ -1,3 +1,4 @@
+// TODO: handle all types of errors here
 use thiserror::Error;
 
 #[derive(Debug, Error)]
