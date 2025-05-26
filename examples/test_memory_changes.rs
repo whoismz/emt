@@ -8,9 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() {
     // Basic info and startup
-    println!("=== Memory Operation Test (Loop) ===");
     println!("PID: {}", process::id());
-    println!("Attach your tracer, then press Enter to start loop...");
+    println!("Press Enter to start ...");
 
     let _ = io::stdin().lock().lines().next();
 
@@ -100,10 +99,7 @@ fn main() {
             if result == 0 {
                 println!("Memory now executable");
             } else {
-                eprintln!(
-                    "mprotect failed with error: {}",
-                    std::io::Error::last_os_error()
-                );
+                eprintln!("mprotect failed with error: {}", io::Error::last_os_error());
             }
         }
 
@@ -113,11 +109,6 @@ fn main() {
         println!("Step 4");
         unsafe {
             let dest = memory as *mut u8;
-
-            // This writing will likely cause a segmentation fault since the memory is no longer writable
-            // We'll catch the signal if it occurs (if a signal handler is set up)
-            println!("Attempting to write to protected memory...");
-
             // Try writing to different offsets
             for i in (0..64).step_by(8) {
                 *dest.add(i) = ((i + cycle_count + 128) % 256) as u8;

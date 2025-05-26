@@ -54,7 +54,7 @@ impl Event {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Page {
     pub addr: usize,
     pub size: usize,

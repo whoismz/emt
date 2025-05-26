@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::Duration;
@@ -14,8 +15,6 @@ pub struct Tracer {
     event_tx: Option<Sender<Event>>,
     thread_handle: Option<thread::JoinHandle<Vec<Page>>>,
 }
-
-const BPF_OBJECT: &[u8] = include_bytes!("../src/bpf/memory_tracer_ringbuf.bpf.o");
 
 impl Tracer {
     /// Creates a new tracer for the specified process ID
@@ -90,10 +89,9 @@ impl Tracer {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
 
-        let temp_dir = std::env::temp_dir();
-        let bpf_path = temp_dir.join("memory_tracer_ringbuf.bpf.o");
+        let bpf_path = PathBuf::from(env!("OUT_DIR"))
+            .join("memory_tracer_ringbuf.bpf.o");
 
-        std::fs::write(&bpf_path, BPF_OBJECT)?;
         bpf_runtime.start(bpf_path.to_str().unwrap())?;
 
         // main loop for events from BPF
@@ -230,13 +228,6 @@ mod tests {
         assert!(!tracer.running);
         assert!(tracer.event_tx.is_none());
         assert!(tracer.thread_handle.is_none());
-    }
-
-    #[test]
-    fn test_bpf_object_inclusion() {
-        // Test that the BPF object is properly included
-        assert!(!BPF_OBJECT.is_empty());
-        assert!(BPF_OBJECT.len() > 0);
     }
 
     #[test]

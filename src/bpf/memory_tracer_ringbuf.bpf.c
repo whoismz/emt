@@ -8,6 +8,7 @@
 
 #define MAPPING_ANONYMOUS 0x20
 #define MAX_SNAPSHOT_SIZE 256
+
 #define EVENT_TYPE_MMAP 0
 #define EVENT_TYPE_MUNMAP 1
 #define EVENT_TYPE_MPROTECT 2
@@ -104,8 +105,6 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
 
 SEC("tracepoint/syscalls/sys_enter_mmap")
 int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
-    // bpf_printk("enter_mmap called");
-
      __u64 prot = ctx->args[2];
      if (!(prot & PROT_EXEC)) return 0;
 
@@ -153,8 +152,6 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_mprotect")
 int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
-    // bpf_printk("mprotect called");
-
      __u64 prot = ctx->args[2];
      if (!(prot & PROT_EXEC)) return 0;
 
@@ -172,8 +169,6 @@ int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
 
 SEC("tracepoint/syscalls/sys_exit_mprotect")
 int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
-    // bpf_printk("mprotect called");
-
     __u64 key = bpf_get_current_pid_tgid();
     __u32 pid = key >> 32;
 
@@ -193,8 +188,6 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_munmap")
 int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
-	// bpf_printk("unmmap called");
-
 	__u64 addr = ctx->args[0];
     __u64 length = ctx->args[1];
     __u32 pid = bpf_get_current_pid_tgid() >> 32;

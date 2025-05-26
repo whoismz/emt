@@ -6,7 +6,11 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.97"
 ctrlc = "3.4.5"
-libbpf-rs = "=0.25.0-beta.1"
 libc = "0.2.171"
 thiserror = "2.0.12"
 log = "0.4.27"
+libbpf-rs = "0.24.8"
+
+[[test]]
+name = "integration_test"
+path = "tests/integration_test.rs"

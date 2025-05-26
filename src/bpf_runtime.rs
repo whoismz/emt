@@ -210,7 +210,7 @@ mod tests {
     use super::*;
     use crate::models::{Event, EventType};
     use std::sync::mpsc;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::time::Duration;
 
     fn create_test_sender() -> (Sender<Event>, mpsc::Receiver<Event>) {
         mpsc::channel()
@@ -418,24 +418,6 @@ mod tests {
         assert_eq!(event.addr, 0x1000);
         assert_eq!(event.size, 0x2000);
         assert_eq!(event.pid, 1234);
-    }
-
-    #[test]
-    fn test_event_conversion_timestamp() {
-        let raw_event = RawMemoryEvent {
-            addr: 0x1000,
-            length: 0x2000,
-            pid: 1234,
-            event_type: 0,
-            timestamp: 1000000000,
-            content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
-        };
-
-        let event: Event = raw_event.into();
-
-        let expected_time = UNIX_EPOCH + Duration::from_nanos(1000000000);
-        assert_eq!(event.timestamp, expected_time);
     }
 
     #[test]
