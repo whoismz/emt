@@ -6,7 +6,7 @@
 - OS: Linux kernel with full eBPF support
 - Language: Rust (stable)
 - Toolchain: `llvm`, `clang` for building eBPF object code
-- Privileges: Root privileges or `CAP_SYS_ADMIN` to load eBPF programs
+- Privileges: Root or `CAP_SYS_ADMIN` to load eBPF programs
 
 
 ## Building
