@@ -1,13 +1,21 @@
 # emt
-Linux userspace executable memory tracer
+> Linux userspace executable memory tracer
+
+
+## Requirements
+- OS: Linux kernel with full eBPF support
+- Language: Rust (stable)
+- Toolchain: `llvm`, `clang` for building eBPF object code
+- Privileges: Root privileges or `CAP_SYS_ADMIN` to load eBPF programs
+
 
 ## Building
 ```bash
 # clone the emt repository
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
-# build with sudo for eBPF
-sudo cargo build --release
+# build it
+cargo build --release
 ```
 
 ## Usage
@@ -47,6 +55,6 @@ fn main() -> Result<()> {
 ### Example
 ```bash
 # use it as the target process to mmap, mprotect and unmap some memory
-sudo cargo run --example test_memory_changes
+cargo run --example test_memory_changes
 ```
 
