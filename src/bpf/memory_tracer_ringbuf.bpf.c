@@ -7,7 +7,7 @@
 #define PROT_EXEC 0x4
 
 #define MAPPING_ANONYMOUS 0x20
-#define MAX_SNAPSHOT_SIZE 256
+#define MAX_SNAPSHOT_SIZE 4096
 
 #define EVENT_TYPE_MMAP 0
 #define EVENT_TYPE_MUNMAP 1
@@ -125,8 +125,6 @@ int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
 
 SEC("tracepoint/syscalls/sys_exit_mmap")
 int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
-    // bpf_printk("exit_mmap called");
-
     __u64 key = bpf_get_current_pid_tgid();
     __u32 pid = key >> 32;
 
@@ -228,4 +226,4 @@ int trace_exit_execve(struct trace_event_raw_sys_exit *ctx) {
     return 0;
 }
 
-char LICENSE[] SEC("license") = "GPL";
+char _LICENSE[] SEC("license") = "GPL";

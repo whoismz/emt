@@ -30,14 +30,6 @@ pub fn print_memory_content(content: &[u8], address: usize) {
         }
 
         debug!("{}", hex_line);
-
-        if i >= 15 && content.len() > 16 * 16 {
-            debug!(
-                "... (showing only first 16 lines of {} total)",
-                (content.len() + BYTES_PER_ROW - 1) / BYTES_PER_ROW
-            );
-            break;
-        }
     }
 }
 

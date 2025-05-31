@@ -9,7 +9,7 @@ use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, Rin
 use crate::models::{Event, EventType};
 use crate::utils::boot_time_seconds;
 
-const MAX_SNAPSHOT_SIZE: usize = 256;
+const MAX_SNAPSHOT_SIZE: usize = 4096;
 
 /// Manages the BPF program lifecycle including loading, attaching, and event processing
 pub struct BpfRuntime {
