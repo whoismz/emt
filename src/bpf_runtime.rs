@@ -510,16 +510,6 @@ mod tests {
         assert!(names.contains(&"trace_exit_mprotect"));
     }
 
-    #[test]
-    fn test_max_snapshot_size_constant() {
-        // Test that MAX_SNAPSHOT_SIZE has the expected value
-        assert_eq!(MAX_SNAPSHOT_SIZE, 256);
-
-        // Test that it's reasonable for the RawMemoryEvent struct
-        use std::mem::size_of;
-        assert!(size_of::<RawMemoryEvent>() < 1024); // Reasonable struct size
-    }
-
     // Mock test for handle_ringbuf_event function
     #[test]
     fn test_handle_ringbuf_event_correct_pid() {

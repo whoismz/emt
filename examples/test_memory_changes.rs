@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() {
-    println!("PID: {}, Press Enter to start ...", process::id());
+    println!("PID: {} Press Enter to start ...", process::id());
     let _ = io::stdin().lock().lines().next();
 
     let running = Arc::new(AtomicBool::new(true));
