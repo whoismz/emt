@@ -119,7 +119,7 @@ fn main() {
         // Step 5: Unmap the memory (optional, skipped here)
         println!("Step 5");
         unsafe {
-            libc::munmap(memory, PAGE_SIZE);
+            // libc::munmap(memory, PAGE_SIZE);
             println!("Memory is free!");
         }
     }

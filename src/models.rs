@@ -14,6 +14,7 @@ pub struct Event {
     pub addr: usize,
     pub size: usize,
     pub timestamp: SystemTime,
+    pub timestamp_str: String,
     pub pid: i32,
     pub content: Option<Vec<u8>>,
 }
@@ -26,6 +27,7 @@ impl Event {
             addr: 0,
             size: 0,
             timestamp: SystemTime::now(),
+            timestamp_str: String::new(),
             pid: -1,
             content: None,
         }
@@ -36,7 +38,7 @@ impl Event {
 pub struct Page {
     pub addr: usize,
     pub size: usize,
-    pub timestamp: SystemTime,
+    pub timestamp: String,
     pub source_file: Option<PathBuf>,
     pub content: Option<Vec<u8>>,
 }
@@ -45,7 +47,7 @@ impl Page {
     pub fn new(
         addr: usize,
         size: usize,
-        timestamp: SystemTime,
+        timestamp: String,
         source_file: Option<PathBuf>,
     ) -> Self {
         Self {

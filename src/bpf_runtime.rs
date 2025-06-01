@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 
+use chrono::{DateTime, Utc};
 use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
 use crate::error::{EmtError, Result};
@@ -193,15 +194,20 @@ impl From<RawMemoryEvent> for Event {
         };
 
         let boot_time = boot_time_seconds();
-        let event_time = SystemTime::UNIX_EPOCH
+        let timestamp = SystemTime::UNIX_EPOCH
             + Duration::from_secs(boot_time)
             + Duration::from_nanos(raw.timestamp);
+        
+        let timestamp_str: String = match DateTime::<Utc>::from(timestamp)
+            .format("%Y-%m-%d %H:%M:%S%.3f")
+            .to_string(){s => s,};
 
         Event {
             event_type,
             addr: raw.addr as usize,
             size: raw.length as usize,
-            timestamp: event_time,
+            timestamp: timestamp,
+            timestamp_str: timestamp_str,
             pid: raw.pid as i32,
             content,
         }

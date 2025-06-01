@@ -151,13 +151,13 @@ mod tests {
     #[test]
     fn test_multi_starts() {
         let mut tracer = Tracer::new(1);
-        
+
         // Simulate an already running state
         tracer.running = true;
 
         let result = tracer.start();
         assert!(result.is_ok());
-        
+
         let _ = tracer.stop();
     }
 
@@ -173,9 +173,9 @@ mod tests {
     #[test]
     fn test_tracer_drop_calls_stop() {
         let mut tracer = Tracer::new(1);
-        
+
         // Simulate running state
-        tracer.running = true; 
+        tracer.running = true;
         let (tx, _rx) = channel();
         tracer.event_tx = Some(tx);
 
@@ -201,7 +201,7 @@ mod tests {
         assert!(tracer.event_tx.is_none());
         assert!(tracer.thread_handle.is_none());
     }
-    
+
     #[test]
     fn test_shutdown_event_helper() {
         let event = Event::shutdown();

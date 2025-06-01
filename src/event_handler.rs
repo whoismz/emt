@@ -1,6 +1,7 @@
-use log::debug;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use log::debug;
 
 use crate::models::{Event, EventType, Page};
 use crate::utils;
@@ -26,7 +27,7 @@ impl EventHandler {
     fn get_pages_from_event(event: Event) -> Vec<Page> {
         let event_addr = event.addr;
         let event_size = event.size;
-        let event_timestamp = event.timestamp;
+        let event_timestamp = event.timestamp_str;
 
         if event_size == 0 {
             return vec![];
@@ -43,7 +44,7 @@ impl EventHandler {
             pages.push(Page {
                 addr: current_page_addr,
                 size: PAGE_SIZE,
-                timestamp: event_timestamp,
+                timestamp: event_timestamp.clone(),
                 source_file: None,
                 content: None,
             });
@@ -67,9 +68,10 @@ impl EventHandler {
         }
 
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
+        
         debug!(
             "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}",
-            event_id, event.event_type, event.addr, event.size, event.timestamp,
+            event_id, event.event_type, event.addr, event.size, event.timestamp_str,
         );
 
         if let Some(content) = &event.content {
@@ -115,6 +117,7 @@ mod tests {
             addr,
             size,
             timestamp: SystemTime::now(),
+            timestamp_str: String::new(),
             pid,
             content: None,
         }
@@ -195,6 +198,7 @@ mod tests {
             addr: 0x1000,
             size: 0x1000,
             timestamp: SystemTime::now(),
+            timestamp_str: String::new(),
             pid: -1,
             content: None,
         };
