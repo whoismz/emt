@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result, anyhow};
 use libbpf_rs::{ErrorKind, Link, MapCore, Object, ObjectBuilder, RingBuffer, RingBufferBuilder};
 
+use crate::error::{EmtError, Result};
 use crate::models::{Event, EventType};
 use crate::utils::boot_time_seconds;
 
@@ -45,15 +45,15 @@ impl BpfRuntime {
 
         let bpf_path = bpf_path.as_ref();
         if !bpf_path.exists() {
-            return Err(anyhow!("BPF program not found at {}", bpf_path.display()));
+            return Err(EmtError::BpfNotFound(bpf_path.display().to_string()));
         }
 
         // Load BPF object
         let mut bpf_object = ObjectBuilder::default()
             .open_file(bpf_path)
-            .context("Failed to open BPF object file")?
+            .map_err(|e| EmtError::OpenBpfError(format!("Failed to open BPF object file: {}", e)))?
             .load()
-            .context("Failed to load BPF object")?;
+            .map_err(|e| EmtError::LoadBpfError(format!("Failed to load BPF object: {}", e)))?;
 
         // Attach probes and initialize the ring buffer
         self.attach_probes(&mut bpf_object)?;
@@ -75,14 +75,14 @@ impl BpfRuntime {
         ];
 
         for prog in bpf_object.progs_mut() {
-            let prog_name = prog.name().to_str().unwrap_or_default();
+            let prog_name = prog.name().to_str().unwrap_or_default().to_string();
 
             if let Some((_, subsystem, tracepoint)) =
                 TRACEPOINTS.iter().find(|(name, _, _)| *name == prog_name)
             {
                 let link = prog
                     .attach_tracepoint(subsystem, tracepoint)
-                    .with_context(|| format!("Failed to attach {prog_name}"))?;
+                    .map_err(|e| EmtError::AttachProbeFailed(prog_name.clone(), e))?;
                 self.probe_links.push(link);
             }
         }
@@ -93,7 +93,7 @@ impl BpfRuntime {
         let events_map = bpf_object
             .maps()
             .find(|map| map.name() == "events")
-            .ok_or_else(|| anyhow!("Failed to find events map"))?;
+            .ok_or_else(|| EmtError::MapError("Failed to find events map".into()))?;
 
         let event_tx = Arc::new(self.event_tx.clone());
         let target_pid = self.target_pid;
@@ -105,9 +105,12 @@ impl BpfRuntime {
                 Self::handle_ringbuf_event(data, &event_tx, target_pid);
                 0
             })
-            .context("Failed to add callback to ring buffer")?;
+            .map_err(|e| EmtError::RingBufInit(format!("Failed to add callback: {}", e)))?;
 
-        self.ring_buffer = Some(builder.build().context("Failed to create ring buffer")?);
+        self.ring_buffer =
+            Some(builder.build().map_err(|e| {
+                EmtError::RingBufInit(format!("Failed to create ring buffer: {}", e))
+            })?);
 
         Ok(())
     }
@@ -134,13 +137,13 @@ impl BpfRuntime {
         let rb = self
             .ring_buffer
             .as_mut()
-            .ok_or(anyhow!("Ring buffer not initialized"))?;
+            .ok_or(EmtError::RingBufNotInitialized)?;
 
         loop {
             match rb.poll(timeout) {
                 Ok(()) => break Ok(()),
                 Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                Err(e) => break Err(e).context("Failed to poll events"),
+                Err(e) => break Err(EmtError::Bpf(e)),
             }
         }
     }

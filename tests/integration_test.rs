@@ -43,7 +43,7 @@ fn test_trace_self_memory_operations() {
     let pages = tracer.stop().unwrap();
 
     assert_eq!(pages.len(), 2);
-    
+
     // TOBE TESTED
     // let expected = Some(vec![0x90; 5]);
     // assert_eq!(pages[1].content, expected);
