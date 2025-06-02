@@ -44,12 +44,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(
-        addr: usize,
-        size: usize,
-        timestamp: String,
-        source_file: Option<PathBuf>,
-    ) -> Self {
+    pub fn new(addr: usize, size: usize, timestamp: String, source_file: Option<PathBuf>) -> Self {
         Self {
             addr,
             size,

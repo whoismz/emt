@@ -73,8 +73,6 @@ struct {
 } execve_args SEC(".maps");
 
 static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 event_type, const void *data, __u32 data_len) {
-    // if (len < 16) return;
-
     struct memory_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
     if (!event) return;
 
@@ -91,7 +89,7 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
     if (data == NULL || copy_len == 0) {
         bpf_ringbuf_submit(event, 0);
     } else {
-        long ret = bpf_probe_read_user(event->content, copy_len, data);
+        long ret = bpf_probe_read(event->content, copy_len, data);
 
         if (ret == 0) {
             bpf_ringbuf_submit(event, 0);
@@ -138,11 +136,15 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
 
     bool is_anonymous = args->flags & MAPPING_ANONYMOUS;
 
+    submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL, 0);
+    
+    /*
     if (is_anonymous) {
         submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL, 0);
     } else {
         submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, (void *)ctx->ret, args->length);
     }
+    */
 
     bpf_map_delete_elem(&mmap_args, &key);
     return 0;

@@ -197,10 +197,13 @@ impl From<RawMemoryEvent> for Event {
         let timestamp = SystemTime::UNIX_EPOCH
             + Duration::from_secs(boot_time)
             + Duration::from_nanos(raw.timestamp);
-        
+
         let timestamp_str: String = match DateTime::<Utc>::from(timestamp)
             .format("%Y-%m-%d %H:%M:%S%.3f")
-            .to_string(){s => s,};
+            .to_string()
+        {
+            s => s,
+        };
 
         Event {
             event_type,

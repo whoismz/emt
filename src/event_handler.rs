@@ -68,7 +68,7 @@ impl EventHandler {
         }
 
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
-        
+
         debug!(
             "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}",
             event_id, event.event_type, event.addr, event.size, event.timestamp_str,
