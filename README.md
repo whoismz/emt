@@ -16,6 +16,9 @@ git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
 # build it
 cargo build --release
+
+# test it (sudo for testing current process itself)
+sudo cargo test
 ```
 
 ## Usage
@@ -57,4 +60,3 @@ fn main() -> Result<()> {
 # use it as the target process to mmap, mprotect and unmap some memory
 cargo run --example test_memory_changes
 ```
-
