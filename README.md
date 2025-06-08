@@ -1,13 +1,12 @@
 # emt
-> Linux userspace executable memory tracer
 
+A Rust library for tracing executable memory in Linux userspace using eBPF. It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis.
 
 ## Requirements
-- OS: Linux kernel with full eBPF support
-- Language: Rust (stable)
-- Toolchain: `llvm`, `clang` for building eBPF object code
-- Privileges: Root or `CAP_SYS_ADMIN` to load eBPF programs
-
+- Linux kernel 5.8+ with eBPF support
+- Rust
+- `clang`, `llvm`, `libbpf`
+- Root privileges or `CAP_SYS_ADMIN` (required to load BPF programs)
 
 ## Building
 ```bash
@@ -21,11 +20,8 @@ cargo build --release
 sudo cargo test
 ```
 
-## Usage
-
-### Library
+## Usage Example
 ```rust
-// import the emt library
 use emt::Tracer;
 
 fn main() -> Result<()> {
@@ -35,7 +31,6 @@ fn main() -> Result<()> {
     // start tracing
     tracer.start()?;
     
-    // wait seconds
     std::thread::sleep(std::time::Duration::from_secs(10));
 
     // stop tracing and get memory pages
@@ -53,10 +48,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-```
-
-### Example
-```bash
-# use it as the target process to mmap, mprotect and unmap some memory
-cargo run --example test_memory_changes
 ```
