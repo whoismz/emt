@@ -59,14 +59,14 @@ impl EventHandler {
         while current_page_addr <= last_page_addr {
             // 计算当前页面在事件内容中的偏移
             let page_offset_in_event = current_page_addr - event_addr;
-            
+
             // 提取当前页面的内容
             let page_content = if let Some(ref content) = event_content {
                 Self::extract_page_content(content, page_offset_in_event)
             } else {
                 None
             };
-            
+
             pages.push(Page {
                 addr: current_page_addr,
                 size: PAGE_SIZE,

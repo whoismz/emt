@@ -1,12 +1,12 @@
 # emt
 
-A Rust library for tracing executable memory in Linux userspace using eBPF. It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis.
+A Rust library for tracing executable memory in Linux userspace using eBPF. It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis. This is useful for analyzing JIT compilers, shellcode injection, or dynamic code loading in malware analysis and reverse engineering.
 
 ## Requirements
-- Linux kernel 5.8+ with eBPF support
-- Rust
-- `clang`, `llvm`, `libbpf`
-- Root privileges or `CAP_SYS_ADMIN` (required to load BPF programs)
+- Rust (latest stable)
+- `Clang/LLVM` and `libbpf`
+- Linux kernel 5.8 or later with eBPF support enabled
+- Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
 
 ## Building
 ```bash
@@ -20,50 +20,54 @@ cargo build --release
 sudo cargo test
 ```
 
-## Usage Example
-see [example code](./examples/example.rs)
+## Usage
 ```rust
 use emt::Tracer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Get target PID from command line arguments or use default
-    let target_pid = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(1);
-
-    // Create a tracer for a target process (PID)
-    let mut tracer = Tracer::new(target_pid);
+    let mut tracer = Tracer::new(2077);
+    
+    // start tracing
     tracer.start()?;
+    
+    // monitor for a while
     std::thread::sleep(std::time::Duration::from_secs(10));
+    
+    // stop and collect results
     let pages = tracer.stop()?;
-
-    // Process the pages you got
-    for (i, page) in pages.iter().enumerate() {
+    
+    // analysis captured pages
+    for page in pages {
         println!(
-            "Page {}: 0x{:016x} - 0x{:016x} ({} bytes) at {}",
-            i + 1,
-            page.addr,
+            "0x{:016x} - 0x{:016x} - {} bytes", 
+            page.addr, 
             page.addr + page.size - 1,
-            page.size,
-            page.timestamp
+            page.size
         );
-
-        // Show first few bytes of memory content if available
-        if let Some(content) = &page.content {
-            let preview_len = content.len().min(16);
-            print!("Content: ");
-            for &byte in &content[..preview_len] {
-                print!("{:02x} ", byte);
-            }
-            if content.len() > preview_len {
-                print!("...");
-            }
-            println!();
-        }
-        println!();
     }
 
     Ok(())
 }
+```
+
+## Example
+1. Target process, see [example.rs](./examples/example.rs)
+```bash
+// copy the output PID
+cargo run --example test_memory_changes
+```
+
+2. Tracer process, see [test_memory_changes.rs](./examples/test_memory_changes.rs)
+```bash
+// paste the PID here
+sudo cargo run --example example [PID]
+```
+
+Expected output:
+```
+Page 1: 0x00000000158a0000 - 0x00000000158a0fff (4096 bytes) at 2077-10-23 03:39:31.124
+Content: 43 79 63 6c 65 20 33 20 2d 20 50 52 45 2d 50 52 ...
+
+Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39:30.123
+Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
