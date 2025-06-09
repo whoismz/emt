@@ -89,7 +89,7 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
     if (data == NULL || copy_len == 0) {
         bpf_ringbuf_submit(event, 0);
     } else {
-        long ret = bpf_probe_read(event->content, copy_len, data);
+        long ret = bpf_probe_read_user(event->content, copy_len, data);
 
         if (ret == 0) {
             bpf_ringbuf_submit(event, 0);
