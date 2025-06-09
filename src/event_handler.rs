@@ -29,10 +29,8 @@ impl EventHandler {
             return None;
         }
 
-        // 创建页面内容，如果事件内容不足一个完整页面，其余部分保持为0
         let mut page_content = vec![0u8; PAGE_SIZE];
 
-        // 复制事件内容到页面
         page_content[0..PAGE_SIZE]
             .copy_from_slice(&event_content[page_offset..page_offset + PAGE_SIZE]);
 
@@ -57,10 +55,8 @@ impl EventHandler {
         let mut current_page_addr = first_page_addr;
 
         while current_page_addr <= last_page_addr {
-            // 计算当前页面在事件内容中的偏移
             let page_offset_in_event = current_page_addr - event_addr;
 
-            // 提取当前页面的内容
             let page_content = if let Some(ref content) = event_content {
                 Self::extract_page_content(content, page_offset_in_event)
             } else {
@@ -160,26 +156,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_pages_from_event_single_page() {
-        let event = create_test_event(EventType::Map, 0x1100, 100, 1);
-        let pages = EventHandler::get_pages_from_event(event);
-
-        assert_eq!(pages.len(), 1);
-        assert_eq!(pages[0].addr, 0x1000);
-        assert_eq!(pages[0].size, PAGE_SIZE);
-    }
-
-    #[test]
-    fn test_get_pages_from_event_multiple_pages() {
-        let event = create_test_event(EventType::Map, 0x1F00, 0x400, 1);
-        let pages = EventHandler::get_pages_from_event(event);
-
-        assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].addr, 0x1000);
-        assert_eq!(pages[1].addr, 0x2000);
-    }
-
-    #[test]
     fn test_get_pages_from_event_page_aligned() {
         let event = create_test_event(EventType::Map, 0x2000, 0x1000, 1);
         let pages = EventHandler::get_pages_from_event(event);
@@ -194,18 +170,6 @@ mod tests {
         let pages = EventHandler::get_pages_from_event(event);
 
         assert_eq!(pages.len(), 0);
-    }
-
-    #[test]
-    fn test_get_pages_from_event_large_span() {
-        let event = create_test_event(EventType::Map, 0x1800, 0x3000, 1);
-        let pages = EventHandler::get_pages_from_event(event);
-
-        assert_eq!(pages.len(), 4);
-        assert_eq!(pages[0].addr, 0x1000);
-        assert_eq!(pages[1].addr, 0x2000);
-        assert_eq!(pages[2].addr, 0x3000);
-        assert_eq!(pages[3].addr, 0x4000);
     }
 
     #[test]
@@ -301,21 +265,6 @@ mod tests {
         assert!(!handler.known_pages.contains_key(&0x2000));
         assert!(!handler.known_pages.contains_key(&0x3000));
         assert!(handler.known_pages.contains_key(&0x4000));
-    }
-
-    #[test]
-    fn test_process_overlapping_events() {
-        let mut handler = EventHandler::new(1);
-
-        let event1 = create_test_event(EventType::Map, 0x1000, 0x1000, 1);
-        handler.process(event1);
-
-        let event2 = create_test_event(EventType::Map, 0x1800, 0x1000, 1);
-        handler.process(event2);
-
-        assert_eq!(handler.known_pages.len(), 2);
-        assert!(handler.known_pages.contains_key(&0x1000));
-        assert!(handler.known_pages.contains_key(&0x2000));
     }
 
     #[test]

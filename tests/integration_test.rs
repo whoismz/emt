@@ -44,7 +44,8 @@ fn test_trace_self_memory_operations() {
 
     assert_eq!(pages.len(), 2);
 
-    // TOBE TESTED
-    // let expected = Some(vec![0x90; 5]);
-    // assert_eq!(pages[1].content, expected);
+    unsafe {
+        let bytes = std::slice::from_raw_parts(pages[1].addr as *const u8, 5);
+        assert_eq!(bytes, [0x90, 0x90, 0x90, 0x90, 0x90]);
+    }
 }

@@ -10,6 +10,8 @@ pub fn do_memory_operations() {
             -1,
             0,
         );
+        
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         let page = libc::mmap(
             ptr::null_mut(),
