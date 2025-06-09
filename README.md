@@ -5,7 +5,7 @@ A Rust library for tracing executable memory in Linux userspace using eBPF. It t
 ## Requirements
 - Rust (latest stable)
 - `Clang/LLVM` and `libbpf`
-- Linux kernel 5.8 or later with eBPF support enabled
+- Linux kernel 5.8 or later with eBPF support
 - Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
 
 ## Building
@@ -53,13 +53,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Example
 1. Target process, see [example.rs](./examples/example.rs)
 ```bash
-// copy the output PID
+# copy the output PID
 cargo run --example test_memory_changes
 ```
 
 2. Tracer process, see [test_memory_changes.rs](./examples/test_memory_changes.rs)
 ```bash
-// paste the PID here
+# paste the PID here
 sudo cargo run --example example [PID]
 ```
 
