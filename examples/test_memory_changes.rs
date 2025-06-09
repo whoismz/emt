@@ -122,5 +122,7 @@ fn main() {
             // libc::munmap(memory, PAGE_SIZE);
             println!("Memory is free!");
         }
+        
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }

@@ -24,10 +24,26 @@ impl EventHandler {
         }
     }
 
+    fn extract_page_content(event_content: &[u8], page_offset: usize) -> Option<Vec<u8>> {
+        if page_offset >= event_content.len() {
+            return None;
+        }
+
+        // 创建页面内容，如果事件内容不足一个完整页面，其余部分保持为0
+        let mut page_content = vec![0u8; PAGE_SIZE];
+
+        // 复制事件内容到页面
+        page_content[0..PAGE_SIZE]
+            .copy_from_slice(&event_content[page_offset..page_offset + PAGE_SIZE]);
+
+        Some(page_content)
+    }
+
     fn get_pages_from_event(event: Event) -> Vec<Page> {
         let event_addr = event.addr;
         let event_size = event.size;
         let event_timestamp = event.timestamp_str;
+        let event_content = event.content;
 
         if event_size == 0 {
             return vec![];
@@ -41,12 +57,22 @@ impl EventHandler {
         let mut current_page_addr = first_page_addr;
 
         while current_page_addr <= last_page_addr {
+            // 计算当前页面在事件内容中的偏移
+            let page_offset_in_event = current_page_addr - event_addr;
+            
+            // 提取当前页面的内容
+            let page_content = if let Some(ref content) = event_content {
+                Self::extract_page_content(content, page_offset_in_event)
+            } else {
+                None
+            };
+            
             pages.push(Page {
                 addr: current_page_addr,
                 size: PAGE_SIZE,
                 timestamp: event_timestamp.clone(),
                 source_file: None,
-                content: None,
+                content: page_content,
             });
             current_page_addr += PAGE_SIZE;
         }
@@ -55,7 +81,9 @@ impl EventHandler {
     }
 
     pub fn get_all_pages(&self) -> Vec<Page> {
-        self.known_pages.values().cloned().collect()
+        let mut pages: Vec<Page> = self.known_pages.values().cloned().collect();
+        pages.sort_by_key(|page| page.addr);
+        pages
     }
 
     pub fn process(&mut self, event: Event) -> bool {

@@ -21,29 +21,47 @@ sudo cargo test
 ```
 
 ## Usage Example
+see [example code](./examples/example.rs)
 ```rust
 use emt::Tracer;
 
-fn main() -> Result<()> {
-    // create a new tracer for a target process (PID)
-    let mut tracer = Tracer::new(2025);
-    
-    // start tracing
-    tracer.start()?;
-    
-    std::thread::sleep(std::time::Duration::from_secs(10));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Get target PID from command line arguments or use default
+    let target_pid = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(1);
 
-    // stop tracing and get memory pages
+    // Create a tracer for a target process (PID)
+    let mut tracer = Tracer::new(target_pid);
+    tracer.start()?;
+    std::thread::sleep(std::time::Duration::from_secs(10));
     let pages = tracer.stop()?;
-    
-    // process the pages you got
-    for page in pages {
+
+    // Process the pages you got
+    for (i, page) in pages.iter().enumerate() {
         println!(
-            "0x{:016x} - 0x{:016x} - {} bytes", 
-            page.addr, 
+            "Page {}: 0x{:016x} - 0x{:016x} ({} bytes) at {}",
+            i + 1,
+            page.addr,
             page.addr + page.size - 1,
-            page.size
+            page.size,
+            page.timestamp
         );
+
+        // Show first few bytes of memory content if available
+        if let Some(content) = &page.content {
+            let preview_len = content.len().min(16);
+            print!("Content: ");
+            for &byte in &content[..preview_len] {
+                print!("{:02x} ", byte);
+            }
+            if content.len() > preview_len {
+                print!("...");
+            }
+            println!();
+        }
+        println!();
     }
 
     Ok(())
