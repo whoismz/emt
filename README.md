@@ -4,6 +4,35 @@ A Rust library for tracing executable memory in Linux userspace using eBPF.
 
 It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis. This is useful for analyzing JIT compilers, shellcode injection, or dynamic code loading in malware analysis and reverse engineering.
 
+## Structure
+```
+emt/
+├── src/
+│   ├── lib.rs                          # Main library interface
+│   ├── tracer.rs                       # Tracer lifecycle management
+│   ├── bpf_runtime.rs                  # eBPF program management
+│   ├── event_handler.rs                # Memory event processing
+│   ├── models.rs                       # Data structures (Event, EventType, Page)
+│   ├── error.rs                        # Error types and handling
+│   ├── utils.rs                        # Utility functions
+│   └── bpf/
+│       └── memory_tracer_ringbuf.bpf.c # eBPF program for kernel-space tracing
+├── examples/
+│   ├── example.rs                      # Basic usage demonstration
+│   ├── test_memory_changes.rs          # Test program with dynamic memory operations
+│   └── test_file_mapping.rs            # Test program for file-backed memory mapping
+├── tests/
+│   ├── integration_test.rs             # Integration tests for tracer functionality
+│   └── common/
+│       └── mod.rs                      # Common test utilities
+├── build.rs                            # Build script for compiling eBPF program
+├── Cargo.toml                          # Project dependencies and configuration
+└── README.md                           # Project documentation
+```
+
+## Architecture & Design
+![arch](./docs/images/architecture.svg)
+
 ## Requirements
 - Rust (latest stable)
 - `Clang/LLVM` and `libbpf`

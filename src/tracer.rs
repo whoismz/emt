@@ -106,7 +106,7 @@ impl Tracer {
         // main loop for events from BPF
         let mut running = true;
         while running {
-            // poll BPF events
+            // poll BPF events, trigger event_tx.send()
             if let Err(e) = bpf_runtime.poll(Duration::from_millis(100)) {
                 error!("Error polling BPF events: {:?}", e);
             }
