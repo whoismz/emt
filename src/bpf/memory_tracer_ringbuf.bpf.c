@@ -82,8 +82,11 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 even
     event->event_type = event_type;
     event->timestamp = bpf_ktime_get_ns();
 
-    __u32 copy_len = data_len > MAX_SNAPSHOT_SIZE ? MAX_SNAPSHOT_SIZE : data_len;
-
+    __u32 copy_len = data_len;
+    if (copy_len > MAX_SNAPSHOT_SIZE) {
+        copy_len = MAX_SNAPSHOT_SIZE - 1;
+    }
+    
     event->content_size = copy_len;
 
     if (data == NULL || copy_len == 0) {
