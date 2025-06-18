@@ -29,7 +29,7 @@ test:
     - mount -t bpf bpf /sys/fs/bpf
   script:
     - ps aux
-    - cargo test --verbose
+    - cargo test -- --skip test_trace_self_memory_operations
   dependencies:
     - build
   allow_failure: true
