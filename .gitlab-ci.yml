@@ -1,0 +1,9 @@
+stages:
+  - test
+
+test:
+  stage: test
+  tags:
+    - rust
+  script:
+    - cargo test
