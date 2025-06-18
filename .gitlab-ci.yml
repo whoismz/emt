@@ -24,7 +24,8 @@ test:
     - apt-get update -qq
     - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
   script:
-    - sudo cargo test
+    - which cargo
+    - sudo $(which cargo) test --verbose
   dependencies:
     - build
   allow_failure: true
