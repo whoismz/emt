@@ -1,5 +1,6 @@
 stages:
   - build
+  - test
 
 build:
   stage: build
@@ -9,3 +10,23 @@ build:
     - apt-get install -y -qq clang llvm libbpf-dev make libelf-dev pkg-config build-essential 
   script:
     - cargo build
+  artifacts:
+    paths:
+      - target/debug/
+    expire_in: 1 hour
+
+test:
+    stage: test
+    tags:
+      - privileged 
+    image: rust:latest
+    before_script:
+      - apt-get update -qq
+      - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+      - echo "Kernel version: $(uname -r)"
+      - echo "Current user: $(whoami)"
+    script:
+      - sudo cargo test
+    dependencies:
+      - build
+    allow_failure: true
