@@ -28,6 +28,7 @@ test:
     - mount -t debugfs debugfs /sys/kernel/debug
     - mount -t bpf bpf /sys/fs/bpf
   script:
+    - ps aux
     - cargo test --verbose
   dependencies:
     - build
