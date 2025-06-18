@@ -23,6 +23,11 @@ test:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+
+    # Setup eBPF environment
+    - mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || echo "debugfs already mounted"
+    - mount -t bpf bpf /sys/fs/bpf 2>/dev/null || echo "bpf filesystem already mounted"
+
     - export CARGO_PATH=$(which cargo)
   script:
     - sudo -E $CARGO_PATH test --verbose
