@@ -4,29 +4,11 @@ stages:
 
 build:
   stage: build
-  image: rust:latest
-  before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq clang llvm libbpf-dev make libelf-dev pkg-config build-essential 
   script:
     - cargo build
-  artifacts:
-    paths:
-      - target/debug/
-    expire_in: 1 hour
 
 test:
   stage: test
-  tags:
-    - privileged 
-  image: rust:latest
-  before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
-
-    # Setup eBPF environment
-    - mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || echo "debugfs already mounted"
-    - mount -t bpf bpf /sys/fs/bpf 2>/dev/null || echo "bpf filesystem already mounted"
   script:
     - cargo test --verbose
   dependencies:
