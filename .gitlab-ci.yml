@@ -23,8 +23,9 @@ test:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+    - export CARGO_PATH=$(which cargo)
   script:
-    - sudo -E cargo test --verbose
+    - sudo -E $CARGO_PATH test --verbose
   dependencies:
     - build
   allow_failure: true
