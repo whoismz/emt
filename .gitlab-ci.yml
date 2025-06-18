@@ -27,10 +27,8 @@ test:
     # Setup eBPF environment
     - mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || echo "debugfs already mounted"
     - mount -t bpf bpf /sys/fs/bpf 2>/dev/null || echo "bpf filesystem already mounted"
-
-    - export CARGO_PATH=$(which cargo)
   script:
-    - sudo -E $CARGO_PATH test --verbose
+    - cargo test --verbose
   dependencies:
     - build
   allow_failure: true
