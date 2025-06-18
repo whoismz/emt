@@ -23,10 +23,8 @@ test:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
-    - sudo rustup default stable
   script:
-    - which cargo
-    - sudo $(which cargo) test --verbose
+    - sudo -E cargo test --verbose
   dependencies:
     - build
   allow_failure: true
