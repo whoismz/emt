@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+/// Enumeration of memory event types.
 #[derive(Debug)]
 pub enum EventType {
     Map,
@@ -8,6 +9,7 @@ pub enum EventType {
     Mprotect,
 }
 
+/// Struct representing a memory event.
 #[repr(C)]
 pub struct Event {
     pub event_type: EventType,
@@ -20,7 +22,7 @@ pub struct Event {
 }
 
 impl Event {
-    /// Creates a shutdown signal event
+    /// Creates a shutdown event
     pub fn shutdown() -> Self {
         Self {
             event_type: EventType::Unmap,
@@ -34,6 +36,7 @@ impl Event {
     }
 }
 
+/// Represents a memory page
 #[derive(Clone, Debug)]
 pub struct Page {
     pub addr: usize,
@@ -44,6 +47,7 @@ pub struct Page {
 }
 
 impl Page {
+    /// Creates a new Page
     pub fn new(addr: usize, size: usize, timestamp: String, source_file: Option<PathBuf>) -> Self {
         Self {
             addr,

@@ -1,4 +1,4 @@
-//! eBPF-based executable memory tracing library for Linux userspace
+//! A Rust library for tracing executable memory in Linux userspace using eBPF.
 
 // Public modules
 pub use models::{Event, EventType, Page};

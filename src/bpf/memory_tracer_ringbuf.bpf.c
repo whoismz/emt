@@ -24,7 +24,7 @@ struct memory_event {
     __u64 timestamp;
     __u64 content_size;
     __u8  content[MAX_SNAPSHOT_SIZE];
-};
+} __attribute__((packed));
 
 // Ring buffer map for transferring data to user space
 struct {

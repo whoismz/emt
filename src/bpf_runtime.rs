@@ -12,7 +12,7 @@ use crate::utils::boot_time_seconds;
 
 const MAX_SNAPSHOT_SIZE: usize = 4096;
 
-/// Manages the BPF program lifecycle including loading, attaching, and event processing
+/// Manages the BPF program lifecycle including loading, attaching, and processing memory events
 pub struct BpfRuntime {
     bpf_object: Option<Object>,
     ring_buffer: Option<RingBuffer<'static>>,
@@ -24,10 +24,6 @@ pub struct BpfRuntime {
 
 impl BpfRuntime {
     /// Creates a new BPF runtime instance
-    ///
-    /// # Arguments
-    /// * `event_tx` - Channel sender for memory events
-    /// * `target_pid` - PID of the process to monitor
     pub fn new(event_tx: Sender<Event>, target_pid: i32) -> Result<Self> {
         Ok(Self {
             bpf_object: None,
@@ -39,6 +35,7 @@ impl BpfRuntime {
         })
     }
 
+    /// Starts the BPF runtime by loading the object, attaching probes, and initializing the ring buffer
     pub fn start(&mut self, bpf_path: impl AsRef<Path>) -> Result<()> {
         if self.is_active {
             return Ok(());
@@ -65,7 +62,7 @@ impl BpfRuntime {
         Ok(())
     }
 
-    /// Attaches all BPF programs to their respective tracepoints
+    /// Attaches BPF programs to tracepoints defined in the object
     fn attach_probes(&mut self, bpf_object: &mut Object) -> Result<()> {
         const TRACEPOINTS: &[(&str, &str, &str)] = &[
             ("trace_enter_mmap", "syscalls", "sys_enter_mmap"),
@@ -90,6 +87,7 @@ impl BpfRuntime {
         Ok(())
     }
 
+    /// Initializes the ring buffer and registers the callback for incoming events
     fn init_ring_buffer(&mut self, bpf_object: &Object) -> Result<()> {
         let events_map = bpf_object
             .maps()
@@ -116,6 +114,7 @@ impl BpfRuntime {
         Ok(())
     }
 
+    /// Parses a raw ring buffer event and sends it if PID matches target
     fn handle_ringbuf_event(data: &[u8], event_tx: &Arc<Sender<Event>>, target_pid: i32) {
         use std::mem::size_of;
 
@@ -130,6 +129,7 @@ impl BpfRuntime {
         }
     }
 
+    /// Polls the ring buffer for events with a timeout
     pub fn poll(&mut self, timeout: Duration) -> Result<()> {
         if !self.is_active {
             return Ok(());
@@ -149,6 +149,7 @@ impl BpfRuntime {
         }
     }
 
+    /// Stops the BPF runtime and cleans up resources
     pub fn stop(&mut self) -> Result<()> {
         self.is_active = false;
         self.ring_buffer.take();
@@ -164,6 +165,7 @@ impl Drop for BpfRuntime {
     }
 }
 
+/// The raw memory event structure sent by the BPF program
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct RawMemoryEvent {
@@ -176,6 +178,7 @@ struct RawMemoryEvent {
     content: [u8; MAX_SNAPSHOT_SIZE],
 }
 
+/// Conversion from RawMemoryEvent to Event structure
 impl From<RawMemoryEvent> for Event {
     fn from(raw: RawMemoryEvent) -> Self {
         let event_type = match raw.event_type {
@@ -269,12 +272,11 @@ mod tests {
         let (tx, _rx) = create_test_sender();
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
 
-        // Simulate the already active state
         runtime.is_active = true;
 
         let result = runtime.start("/some/path/to/bpf.o");
         assert!(result.is_ok());
-        assert!(runtime.is_active); // Should remain active
+        assert!(runtime.is_active);
     }
 
     #[test]
@@ -293,7 +295,6 @@ mod tests {
         let (tx, _rx) = create_test_sender();
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
 
-        // Simulate the active state with some components
         runtime.is_active = true;
 
         let result = runtime.stop();
@@ -311,7 +312,7 @@ mod tests {
 
         assert!(!runtime.is_active);
         let result = runtime.poll(Duration::from_millis(100));
-        assert!(result.is_ok()); // Should return Ok without doing anything
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -319,7 +320,7 @@ mod tests {
         let (tx, _rx) = create_test_sender();
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
 
-        runtime.is_active = true; // Set active but no ring buffer
+        runtime.is_active = true;
 
         let result = runtime.poll(Duration::from_millis(100));
         assert!(result.is_err());
@@ -336,10 +337,9 @@ mod tests {
         let (tx, _rx) = create_test_sender();
         let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
 
-        runtime.is_active = true; // Simulate active state
+        runtime.is_active = true;
 
         drop(runtime);
-        // If reach here without a panic, a drop worked correctly
         assert!(true);
     }
 
@@ -397,7 +397,7 @@ mod tests {
             addr: 0x1000,
             length: 0x2000,
             pid: 1234,
-            event_type: 1, // Unmap
+            event_type: 1,
             timestamp: 1000000000,
             content_size: 0,
             content: [0; MAX_SNAPSHOT_SIZE],
@@ -418,7 +418,7 @@ mod tests {
             addr: 0x1000,
             length: 0x2000,
             pid: 1234,
-            event_type: 2, // Mprotect
+            event_type: 2,
             timestamp: 1000000000,
             content_size: 0,
             content: [0; MAX_SNAPSHOT_SIZE],
@@ -457,13 +457,13 @@ mod tests {
             pid: 1234,
             event_type: 0,
             timestamp: 1000000000,
-            content_size: (MAX_SNAPSHOT_SIZE + 100) as u64, // Exceeds max
+            content_size: (MAX_SNAPSHOT_SIZE + 100) as u64,
             content: [0xFF; MAX_SNAPSHOT_SIZE],
         };
 
         let event: Event = raw_event.into();
 
-        assert!(event.content.is_none()); // Should be None due to the size limit
+        assert!(event.content.is_none());
     }
 
     #[test]
@@ -497,7 +497,6 @@ mod tests {
 
     #[test]
     fn test_tracepoints_configuration() {
-        // Test that the tracepoints constant contains expected values
         const TRACEPOINTS: &[(&str, &str, &str)] = &[
             ("trace_enter_mmap", "syscalls", "sys_enter_mmap"),
             ("trace_exit_mmap", "syscalls", "sys_exit_mmap"),
@@ -508,12 +507,10 @@ mod tests {
 
         assert_eq!(TRACEPOINTS.len(), 5);
 
-        // Check that all tracepoints use the "syscalls" subsystem
         for (_, subsystem, _) in TRACEPOINTS {
             assert_eq!(*subsystem, "syscalls");
         }
 
-        // Check specific tracepoint names
         let names: Vec<&str> = TRACEPOINTS.iter().map(|(name, _, _)| *name).collect();
         assert!(names.contains(&"trace_enter_mmap"));
         assert!(names.contains(&"trace_exit_mmap"));
@@ -522,18 +519,16 @@ mod tests {
         assert!(names.contains(&"trace_exit_mprotect"));
     }
 
-    // Mock test for handle_ringbuf_event function
     #[test]
     fn test_handle_ringbuf_event_correct_pid() {
         let (tx, rx) = create_test_sender();
         let event_tx = Arc::new(tx);
         let target_pid = 1234;
 
-        // Create a properly sized buffer with RawMemoryEvent data
         let raw_event = RawMemoryEvent {
             addr: 0x1000,
             length: 0x2000,
-            pid: 1234, // Matches target_pid
+            pid: 1234,
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
@@ -549,7 +544,6 @@ mod tests {
 
         BpfRuntime::handle_ringbuf_event(data, &event_tx, target_pid);
 
-        // Check that an event was sent
         let received_event = rx.try_recv().unwrap();
         assert_eq!(received_event.pid, 1234);
         assert_eq!(received_event.addr, 0x1000);
@@ -564,7 +558,7 @@ mod tests {
         let raw_event = RawMemoryEvent {
             addr: 0x1000,
             length: 0x2000,
-            pid: 5678, // Different from target_pid
+            pid: 5678,
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
@@ -580,7 +574,6 @@ mod tests {
 
         BpfRuntime::handle_ringbuf_event(data, &event_tx, target_pid);
 
-        // Check that no event was sent (wrong PID)
         assert!(rx.try_recv().is_err());
     }
 
@@ -589,13 +582,10 @@ mod tests {
         let (tx, rx) = create_test_sender();
         let event_tx = Arc::new(tx);
         let target_pid = 1234;
-
-        // Create data that's too small
         let small_data = vec![0u8; 10];
 
         BpfRuntime::handle_ringbuf_event(&small_data, &event_tx, target_pid);
 
-        // Check that no event was sent (insufficient data)
         assert!(rx.try_recv().is_err());
     }
 }

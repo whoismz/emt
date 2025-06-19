@@ -13,6 +13,7 @@ use crate::error::{EmtError, Result};
 use crate::event_handler::EventHandler;
 use crate::models::{Event, Page};
 
+/// Tracer is responsible for monitoring memory events in a target process using eBPF.
 pub struct Tracer {
     target_pid: i32,
     running: bool,
@@ -31,7 +32,7 @@ impl Tracer {
         }
     }
 
-    /// Starts tracing the process
+    /// Starts the tracer thread and BPF runtime.
     pub fn start(&mut self) -> Result<()> {
         if self.running {
             return Ok(());
@@ -50,6 +51,7 @@ impl Tracer {
 
         let target_pid = self.target_pid;
 
+        // Spawn the tracer thread
         let thread_handle = thread::spawn(move || {
             let mut pages = Vec::new();
 
@@ -66,7 +68,7 @@ impl Tracer {
         Ok(())
     }
 
-    /// Stops tracing and returns collected memory pages
+    /// Stops tracing and returns all collected memory pages
     pub fn stop(&mut self) -> Result<Vec<Page>> {
         if !self.running {
             return Ok(Vec::new());
@@ -90,6 +92,7 @@ impl Tracer {
         Ok(pages)
     }
 
+    /// Main tracing loop. Starts BPF, handles incoming events, and stops cleanly.
     fn run(
         target_pid: i32,
         event_tx: Sender<Event>,
@@ -98,7 +101,6 @@ impl Tracer {
     ) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
-
         let bpf_path = PathBuf::from(env!("OUT_DIR")).join("memory_tracer_ringbuf.bpf.o");
 
         bpf_runtime.start(bpf_path.to_str().unwrap())?;
@@ -106,12 +108,12 @@ impl Tracer {
         // main loop for events from BPF
         let mut running = true;
         while running {
-            // poll BPF events, trigger event_tx.send()
+            // Poll BPF ringbuf for events, which trigger event_tx.send()
             if let Err(e) = bpf_runtime.poll(Duration::from_millis(100)) {
                 error!("Error polling BPF events: {:?}", e);
             }
 
-            // check for received memory events
+            // Process events from event_rx channel
             while let Ok(event) = event_rx.try_recv() {
                 if !handler.process(event) {
                     running = false;
@@ -128,6 +130,7 @@ impl Tracer {
 }
 
 impl Drop for Tracer {
+    /// Automatically stops the tracer on drop if it's still running.
     fn drop(&mut self) {
         if self.running {
             let _ = self.stop();
@@ -151,8 +154,6 @@ mod tests {
     #[test]
     fn test_multi_starts() {
         let mut tracer = Tracer::new(1);
-
-        // Simulate an already running state
         tracer.running = true;
 
         let result = tracer.start();
@@ -174,15 +175,11 @@ mod tests {
     fn test_tracer_drop_calls_stop() {
         let mut tracer = Tracer::new(1);
 
-        // Simulate running state
         tracer.running = true;
         let (tx, _rx) = channel();
         tracer.event_tx = Some(tx);
 
-        // Drop the tracer - should call stop()
         drop(tracer);
-
-        // If reach here without a panic, the drop worked correctly
         assert!(true);
     }
 

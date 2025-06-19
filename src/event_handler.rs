@@ -9,6 +9,7 @@ use crate::utils;
 const PAGE_SIZE: usize = 4096;
 const PAGE_MASK: usize = PAGE_SIZE - 1;
 
+/// Handles memory events and keeps track of memory pages for a specific target PID.
 pub struct EventHandler {
     target_pid: i32,
     event_counter: AtomicUsize,
@@ -16,6 +17,7 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
+    /// Creates a new EventHandler for a specific target PID.
     pub fn new(target_pid: i32) -> Self {
         Self {
             target_pid,
@@ -24,6 +26,7 @@ impl EventHandler {
         }
     }
 
+    /// Extracts raw memory data from a page in the event
     fn extract_page_content(event_content: &[u8], page_offset: usize) -> Option<Vec<u8>> {
         if page_offset >= event_content.len() {
             return None;
@@ -37,6 +40,7 @@ impl EventHandler {
         Some(page_content)
     }
 
+    /// Divides a memory event into one or more memory pages.
     fn get_pages_from_event(event: Event) -> Vec<Page> {
         let event_addr = event.addr;
         let event_size = event.size;
@@ -76,17 +80,21 @@ impl EventHandler {
         pages
     }
 
+    /// Returns a sorted (by addr) list of all currently known pages.
     pub fn get_all_pages(&self) -> Vec<Page> {
         let mut pages: Vec<Page> = self.known_pages.values().cloned().collect();
         pages.sort_by_key(|page| page.addr);
         pages
     }
 
+    /// Processes a single memory event.
     pub fn process(&mut self, event: Event) -> bool {
+        // Shutdown event
         if event.pid == -1 {
             return false;
         }
 
+        // Ignore unrelated process
         if event.pid != self.target_pid {
             return true;
         }
