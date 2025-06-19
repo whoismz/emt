@@ -31,13 +31,23 @@ emt/
 ```
 
 ## Architecture & Design
+### Overview
 ![arch](./docs/images/architecture.svg)
 
+### eBPF side
+
+
 ## Requirements
-- Rust (latest stable)
+- Rust
 - `Clang/LLVM` and `libbpf`
-- Linux kernel 5.8 or later with eBPF support
+- Linux kernel 5.8 or later with BPF support
 - Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
+- bpftool
+
+This project uses **BPF CO-RE** (Compile Once, Run Everywhere), which requires a `vmlinux.h` file generated from your system’s kernel BTF data. If `src/bpf/vmlinux.h` does not exist, the build script (build.rs) will automatically generate it by running:
+```bash
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
+```
 
 ## Building
 ```bash
@@ -102,3 +112,5 @@ Content: 43 79 63 6c 65 20 33 20 2d 20 50 52 45 2d 50 52 ...
 Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39:30.123
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
+
+## Limitation and Future work
