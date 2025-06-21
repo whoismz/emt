@@ -2,21 +2,24 @@
 
 A Rust library for tracing executable memory in Linux userspace using eBPF.
 
-It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis. This is useful for analyzing JIT compilers, shellcode injection, or dynamic code loading in malware analysis and reverse engineering.
+It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis.
 
 ## Content of Table
 
 - [Structure](#Structure)
 - [Architecture and Design](#Architecture-and-Design)
+  - [Overview](#Overview)
+  - [eBPF](README#eBPF)
 - [Requirements](#Requirements)
 - [Building](#Building)
 - [Usage](#Usage)
 - [Example](#Example)
 - [Limitation and Future work](#Limitation-and-Future-work)
+- [Acknowledgments](#Acknowledgments)
 
 ## Structure
 
-```
+```bash
 emt/
 ├── src/
 │   ├── lib.rs                          # Main library interface
@@ -27,16 +30,16 @@ emt/
 │   ├── error.rs                        # Error types and handling
 │   ├── utils.rs                        # Utility functions
 │   └── bpf/
-│       └── memory_tracer_ringbuf.bpf.c # eBPF program for kernel-space tracing
+│       └── memory_tracer.bpf.c         # eBPF program for kernel-space tracing
 ├── examples/
-│   ├── example.rs                      # Basic usage demonstration
+│   ├── example.rs                      # Basic usage example
 │   ├── test_memory_changes.rs          # Test program with dynamic memory operations
 │   └── test_file_mapping.rs            # Test program for file-backed memory mapping
 ├── tests/
-│   ├── integration_test.rs             # Integration tests for tracer functionality
+│   ├── integration_test.rs             # Integration tests
 │   └── common/
 │       └── mod.rs                      # Common test utilities
-├── build.rs                            # Build script for compiling eBPF program
+├── build.rs                            # Build script for this project
 ├── Cargo.toml                          # Project dependencies and configuration
 └── README.md                           # Project documentation
 ```
@@ -53,6 +56,8 @@ This eBPF program monitors memory operations in the Linux kernel through tracepo
 
 - Memory mapping operations (`mmap`/`munmap`)
 - Protection changes (`mprotect`)
+
+see [memory_tracer.bpf.c](./src/bpf/memory_tracer.bpf.c)
 
 #### eBPF Maps
 
@@ -152,6 +157,14 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
-## Limitation and Future work
+## Limitation and Future Work
+
+First, when memory regions have both write (W) and execute (X) permissions simultaneously, the tracer cannot detect runtime memory modifications since it only monitors syscall-level operations.
+
+Second, when mmap allocates memory with execute permissions, bpf_probe_read_user cannot safely dump memory content without triggering page faults, creating race conditions between allocation.
+
+## Acknowledgments
+
+This project was developed under the supervision of Prof. Aurélien Francillon and Marco Cavenati at EURECOM during Spring 2025.
 
 <a href="#top">Back to top</a>
