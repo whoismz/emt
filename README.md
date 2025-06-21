@@ -4,12 +4,12 @@ A Rust library for tracing executable memory in Linux userspace using eBPF.
 
 It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis.
 
-## Content of Table
+## Table of Contents
 
 - [Structure](#Structure)
 - [Architecture and Design](#Architecture-and-Design)
   - [Overview](#Overview)
-  - [eBPF](README#eBPF)
+  - [eBPF](#eBPF)
 - [Requirements](#Requirements)
 - [Building](#Building)
 - [Usage](#Usage)
