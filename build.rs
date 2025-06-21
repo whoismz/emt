@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let bpf_src = Path::new("src/bpf/memory_tracer_ringbuf.bpf.c");
+    let bpf_src = Path::new("src/bpf/memory_tracer.bpf.c");
     let vmlinux_path = Path::new("src/bpf/vmlinux.h");
 
     // Rerun build if these files change
@@ -38,7 +38,7 @@ fn main() {
 
     // Build BPF object using clang
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let bpf_out = out_dir.join("memory_tracer_ringbuf.bpf.o");
+    let bpf_out = out_dir.join("memory_tracer.bpf.o");
 
     let status = Command::new("clang")
         .args([
