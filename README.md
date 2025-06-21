@@ -6,16 +6,16 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 
 ## Table of Contents
 
-- [Structure](#Structure)
-- [Architecture and Design](#Architecture-and-Design)
-  - [Overview](#Overview)
+- [Structure](#structure)
+- [Architecture and Design](#architecture-and-design)
+  - [Overview](#overview)
   - [eBPF](#eBPF)
-- [Requirements](#Requirements)
-- [Building](#Building)
-- [Usage](#Usage)
-- [Example](#Example)
-- [Limitation and Future work](#Limitation-and-Future-work)
-- [Acknowledgments](#Acknowledgments)
+- [Requirements](#requirements)
+- [Building](#building)
+- [Usage](#usage)
+- [Example](#example)
+- [Limitations and Future work](#limitations-and-future-work)
+- [Acknowledgments](#acknowledgments)
 
 ## Structure
 
@@ -157,7 +157,7 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
-## Limitation and Future Work
+## Limitations and Future Work
 
 First, when memory regions have both write (W) and execute (X) permissions simultaneously, the tracer cannot detect runtime memory modifications since it only monitors syscall-level operations.
 
