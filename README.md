@@ -1,10 +1,21 @@
 # emt
 
-A Rust library for tracing executable memory in Linux userspace using eBPF. 
+A Rust library for tracing executable memory in Linux userspace using eBPF.
 
 It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regions that gain execution permissions, and dumps their contents for further analysis. This is useful for analyzing JIT compilers, shellcode injection, or dynamic code loading in malware analysis and reverse engineering.
 
+## Content of Table
+
+- [Structure](#Structure)
+- [Architecture and Design](<#Architecture and Design>)
+- [Requirements](#Requirements)
+- [Building](#Building)
+- [Usage](#Usage)
+- [Example](#Example)
+- [Limitation and Future work](<#Limitation and Future work>)
+
 ## Structure
+
 ```
 emt/
 ├── src/
@@ -30,14 +41,35 @@ emt/
 └── README.md                           # Project documentation
 ```
 
-## Architecture & Design
+## Architecture and Design
+
 ### Overview
+
 ![arch](./docs/images/architecture.svg)
 
-### eBPF side
+### eBPF
 
+This eBPF program monitors memory operations in the Linux kernel through tracepoints, capturing:
+
+- Memory mapping operations (`mmap`/`munmap`)
+- Protection changes (`mprotect`)
+
+#### eBPF Maps
+
+| Map Name        | Type                 | Purpose                       |
+| --------------- | -------------------- | ----------------------------- |
+| `events`        | BPF_MAP_TYPE_RINGBUF | Event transport to user space |
+| `mmap_args`     | BPF_MAP_TYPE_HASH    | Temporary mmap arguments      |
+| `mprotect_args` | BPF_MAP_TYPE_HASH    | Temporary mprotect arguments  |
+
+#### How the eBPF program works
+
+In this situation: `mmap(W) -> writes bytes -> mprotect(X) -> executes`, we now can capture memory events and dump the bytes written without race conditions.
+
+![bpf](./docs/images/bpf.svg)
 
 ## Requirements
+
 - Rust
 - `Clang/LLVM` and `libbpf`
 - Linux kernel 5.8 or later with BPF support
@@ -45,11 +77,13 @@ emt/
 - bpftool
 
 This project uses **BPF CO-RE** (Compile Once, Run Everywhere), which requires a `vmlinux.h` file generated from your system’s kernel BTF data. If `src/bpf/vmlinux.h` does not exist, the build script (build.rs) will automatically generate it by running:
+
 ```bash
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 ```
 
 ## Building
+
 ```bash
 # clone the emt repository
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
@@ -62,26 +96,27 @@ sudo cargo test
 ```
 
 ## Usage
+
 ```rust
 use emt::Tracer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tracer = Tracer::new(2077);
-    
+
     // start tracing
     tracer.start()?;
-    
+
     // monitor for a while
     std::thread::sleep(std::time::Duration::from_secs(10));
-    
+
     // stop and collect results
     let pages = tracer.stop()?;
-    
+
     // analysis captured pages
     for page in pages {
         println!(
-            "0x{:016x} - 0x{:016x} - {} bytes", 
-            page.addr, 
+            "0x{:016x} - 0x{:016x} - {} bytes",
+            page.addr,
             page.addr + page.size - 1,
             page.size
         );
@@ -92,19 +127,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ## Example
+
 1. Target process, see [test_memory_changes.rs](./examples/test_memory_changes.rs)
+
 ```bash
 # copy the output PID
 cargo run --example test_memory_changes
 ```
 
 2. Tracer process, see [example.rs](./examples/example.rs)
+
 ```bash
 # paste the PID here
 sudo cargo run --example example [PID]
 ```
 
 Expected output:
+
 ```
 Page 1: 0x00000000158a0000 - 0x00000000158a0fff (4096 bytes) at 2077-10-23 03:39:31.124
 Content: 43 79 63 6c 65 20 33 20 2d 20 50 52 45 2d 50 52 ...
@@ -114,3 +153,5 @@ Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
 ## Limitation and Future work
+
+<a href="#top">Back to top</a>
