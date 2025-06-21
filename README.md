@@ -9,7 +9,7 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 - [Structure](#structure)
 - [Architecture and Design](#architecture-and-design)
   - [Overview](#overview)
-  - [eBPF](#eBPF)
+  - [eBPF](#ebpf)
 - [Requirements](#requirements)
 - [Building](#building)
 - [Usage](#usage)
