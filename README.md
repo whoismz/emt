@@ -7,12 +7,12 @@ It tracks syscalls like `mmap`, `mprotect`, and `munmap` to monitor memory regio
 ## Content of Table
 
 - [Structure](#Structure)
-- [Architecture and Design](<#Architecture and Design>)
+- [Architecture and Design](#Architecture-and-Design)
 - [Requirements](#Requirements)
 - [Building](#Building)
 - [Usage](#Usage)
 - [Example](#Example)
-- [Limitation and Future work](<#Limitation and Future work>)
+- [Limitation and Future work](#Limitation-and-Future-work)
 
 ## Structure
 
