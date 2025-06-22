@@ -77,7 +77,7 @@ In this situation: `mmap(W) -> writes bytes -> mprotect(X) -> executes`, we now 
 
 - Rust
 - `Clang/LLVM` and `libbpf`
-- Linux kernel 5.8 or later with BPF support
+- Linux kernel with BPF support
 - Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
 - bpftool
 
@@ -161,7 +161,7 @@ Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 
 First, when memory regions have both write (W) and execute (X) permissions simultaneously, the tracer cannot detect runtime memory modifications since it only monitors syscall-level operations.
 
-Second, when mmap allocates memory with execute permissions, bpf_probe_read_user cannot safely dump memory content without triggering page faults, creating race conditions between allocation.
+Second, when mmap allocates memory with execute permissions, `bpf_probe_read_user` cannot safely dump memory content without triggering page faults, creating race conditions between allocation.
 
 ## Acknowledgments
 

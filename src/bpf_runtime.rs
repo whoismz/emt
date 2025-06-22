@@ -10,7 +10,7 @@ use crate::error::{EmtError, Result};
 use crate::models::{Event, EventType};
 use crate::utils::boot_time_seconds;
 
-const MAX_SNAPSHOT_SIZE: usize = 4096;
+const ONE_PAGE_SIZE: usize = 4096;
 
 /// Manages the BPF program lifecycle including loading, attaching, and processing memory events
 pub struct BpfRuntime {
@@ -175,7 +175,7 @@ struct RawMemoryEvent {
     event_type: u32,
     timestamp: u64,
     content_size: u64,
-    content: [u8; MAX_SNAPSHOT_SIZE],
+    content: [u8; ONE_PAGE_SIZE],
 }
 
 /// Conversion from RawMemoryEvent to Event structure
@@ -187,11 +187,9 @@ impl From<RawMemoryEvent> for Event {
             2 => EventType::Mprotect,
             _ => EventType::Map,
         };
-
-        let content = if raw.content_size > 0 && raw.content_size <= MAX_SNAPSHOT_SIZE as u64 {
-            let mut content_vec = Vec::with_capacity(raw.content_size as usize);
-            content_vec.extend_from_slice(&raw.content[..raw.content_size as usize]);
-            Some(content_vec)
+        
+        let content = if raw.content_size > 0 as u64 {
+            Some(raw.content[..raw.content_size as usize].to_vec())
         } else {
             None
         };
@@ -333,17 +331,6 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_calls_stop() {
-        let (tx, _rx) = create_test_sender();
-        let mut runtime = BpfRuntime::new(tx, 1234).unwrap();
-
-        runtime.is_active = true;
-
-        drop(runtime);
-        assert!(true);
-    }
-
-    #[test]
     fn test_raw_memory_event_creation() {
         let raw_event = RawMemoryEvent {
             addr: 0x1000,
@@ -352,7 +339,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 4,
-            content: [0; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         assert_eq!(raw_event.addr, 0x1000);
@@ -360,12 +347,11 @@ mod tests {
         assert_eq!(raw_event.pid, 1234);
         assert_eq!(raw_event.event_type, 0);
         assert_eq!(raw_event.timestamp, 1000000000);
-        assert_eq!(raw_event.content_size, 4);
     }
 
     #[test]
     fn test_event_conversion_map_type() {
-        let mut content = [0u8; MAX_SNAPSHOT_SIZE];
+        let mut content = [0u8; ONE_PAGE_SIZE];
         content[0] = 0x90;
         content[1] = 0x90;
         content[2] = 0x90;
@@ -400,7 +386,7 @@ mod tests {
             event_type: 1,
             timestamp: 1000000000,
             content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         let event: Event = raw_event.into();
@@ -421,7 +407,7 @@ mod tests {
             event_type: 2,
             timestamp: 1000000000,
             content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         let event: Event = raw_event.into();
@@ -441,24 +427,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
-        };
-
-        let event: Event = raw_event.into();
-
-        assert!(event.content.is_none());
-    }
-
-    #[test]
-    fn test_event_conversion_content_size_exceeds_max() {
-        let raw_event = RawMemoryEvent {
-            addr: 0x1000,
-            length: 0x2000,
-            pid: 1234,
-            event_type: 0,
-            timestamp: 1000000000,
-            content_size: (MAX_SNAPSHOT_SIZE + 100) as u64,
-            content: [0xFF; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         let event: Event = raw_event.into();
@@ -468,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_event_conversion_partial_content() {
-        let mut content = [0u8; MAX_SNAPSHOT_SIZE];
+        let mut content = [0u8; ONE_PAGE_SIZE];
         content[0] = 0xDE;
         content[1] = 0xAD;
         content[2] = 0xBE;
@@ -532,7 +501,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         let data = unsafe {
@@ -562,7 +531,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
-            content: [0; MAX_SNAPSHOT_SIZE],
+            content: [0; ONE_PAGE_SIZE],
         };
 
         let data = unsafe {

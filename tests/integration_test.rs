@@ -42,10 +42,15 @@ fn test_trace_self_memory_operations() {
 
     let pages = tracer.stop().unwrap();
 
-    assert_eq!(pages.len(), 2);
+    assert_eq!(pages.len(), 5);
 
     unsafe {
-        let bytes = std::slice::from_raw_parts(pages[1].addr as *const u8, 5);
+        let bytes = std::slice::from_raw_parts(pages[2].addr as *const u8, 5);
         assert_eq!(bytes, [0x90, 0x90, 0x90, 0x90, 0x90]);
+    }
+
+    unsafe {
+        let bytes = std::slice::from_raw_parts(pages[3].addr as *const u8, 5);
+        assert_eq!(bytes, [0x91, 0x91, 0x91, 0x91, 0x91]);
     }
 }

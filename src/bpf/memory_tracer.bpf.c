@@ -7,7 +7,7 @@
 #define PROT_EXEC 0x4
 
 #define MAPPING_ANONYMOUS 0x20
-#define MAX_SNAPSHOT_SIZE 4096
+#define ONE_PAGE_SIZE 4096
 #define RINGBUF_SIZE (16 * 1024 * 1024) // 16 MiB
 
 #define EVENT_TYPE_MMAP 0
@@ -23,7 +23,7 @@ struct memory_event {
     __u32 event_type;
     __u64 timestamp;
     __u64 content_size;
-    __u8  content[MAX_SNAPSHOT_SIZE];
+    __u8 content[ONE_PAGE_SIZE];
 } __attribute__((packed));
 
 // Ring buffer map for transferring data to user space
@@ -58,10 +58,10 @@ struct execve_args_t {
 
 // Temporary argument storage maps (key = pid_tgid)
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10240);
-	__type(key, __u64);
-	__type(value, struct mmap_args_t);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, __u64);
+    __type(value, struct mmap_args_t);
 } mmap_args SEC(".maps");
 
 struct {
@@ -79,58 +79,58 @@ struct {
 } execve_args SEC(".maps");
 
 // Helper to get pid_tgid and pid
-static __always_inline __u64 get_key() {
-    return bpf_get_current_pid_tgid();
-}
+static __always_inline __u64 get_key() { return bpf_get_current_pid_tgid(); }
 
-static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid, __u32 event_type, const void *data, __u32 data_len) {
-    struct memory_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
-    if (!event) return;
+static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid,
+                         __u32 event_type, const void *data, __u32 data_len) {
+    __u32 total_fragments = (len + ONE_PAGE_SIZE - 1) / ONE_PAGE_SIZE;
 
-    event->addr = addr;
-    event->length = len;
-    event->pid = pid;
-    event->event_type = event_type;
-    event->timestamp = bpf_ktime_get_ns();
-
-    __u32 copy_len = data_len & 0x1FFF;
-    if (copy_len > MAX_SNAPSHOT_SIZE) {
-        copy_len = MAX_SNAPSHOT_SIZE;
-    }
+    const void *cur_data = data;
+    __u64 cur_addr = addr;
     
-    event->content_size = copy_len;
-    
-    if (copy_len && data) {
-        long ret = bpf_probe_read_user(event->content, copy_len, data);
+    bpf_repeat(total_fragments) {
+        struct memory_event *event =
+            bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+
+        if (!event)
+            return;
+
+        event->addr = cur_addr;
+        event->length = ONE_PAGE_SIZE;
+        event->pid = pid;
+        event->event_type = event_type;
+        event->timestamp = bpf_ktime_get_ns();
+
+        long ret = bpf_probe_read_user(event->content, ONE_PAGE_SIZE, cur_data);
         
         if (ret == 0) {
+            event->content_size = ONE_PAGE_SIZE;
             bpf_ringbuf_submit(event, 0);
         } else {
-            bpf_ringbuf_discard(event, 0);
+            event->content_size = 0;
+            bpf_ringbuf_submit(event, 0);
         }
-    } else {
-        bpf_ringbuf_submit(event, 0);
-    }
 
-    return;
+        cur_data += ONE_PAGE_SIZE;
+        cur_addr += ONE_PAGE_SIZE;
+    }
 }
 
 // Handle mmap entry
 SEC("tracepoint/syscalls/sys_enter_mmap")
 int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
-     __u64 prot = ctx->args[2];
-     if (!(prot & PROT_EXEC)) return 0;
+    __u64 prot = ctx->args[2];
+    if (!(prot & PROT_EXEC))
+        return 0;
 
     __u64 key = get_key();
 
-    struct mmap_args_t args = {
-        .addr = ctx->args[0],
-        .length = ctx->args[1],
-        .prot = ctx->args[2],
-        .flags = ctx->args[3],
-        .fd = ctx->args[4],
-        .offset = ctx->args[5]
-    };
+    struct mmap_args_t args = {.addr = ctx->args[0],
+                               .length = ctx->args[1],
+                               .prot = ctx->args[2],
+                               .flags = ctx->args[3],
+                               .fd = ctx->args[4],
+                               .offset = ctx->args[5]};
 
     bpf_map_update_elem(&mmap_args, &key, &args, BPF_ANY);
     return 0;
@@ -148,14 +148,17 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     }
 
     struct mmap_args_t *args = bpf_map_lookup_elem(&mmap_args, &key);
-    if (!args) return 0;
+    if (!args)
+        return 0;
 
     bool is_anonymous = args->flags & MAPPING_ANONYMOUS;
-    
+
     if (is_anonymous) {
-        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL, 0);
+        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL,
+                     0);
     } else {
-        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, (void *)ctx->ret, args->length);
+        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP,
+                     (void *)ctx->ret, args->length);
     }
 
     bpf_map_delete_elem(&mmap_args, &key);
@@ -165,8 +168,9 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
 // Handle mprotect entry
 SEC("tracepoint/syscalls/sys_enter_mprotect")
 int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
-     __u64 prot = ctx->args[2];
-     if (!(prot & PROT_EXEC)) return 0;
+    __u64 prot = ctx->args[2];
+    if (!(prot & PROT_EXEC))
+        return 0;
 
     __u64 key = get_key();
 
@@ -192,9 +196,11 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     }
 
     struct mprotect_args_t *args = bpf_map_lookup_elem(&mprotect_args, &key);
-    if (!args) return 0;
+    if (!args)
+        return 0;
 
-    submit_event(ctx, args->start, args->length, pid, EVENT_TYPE_MPROTECT, (void *)args->start, args->length);
+    submit_event(ctx, args->start, args->length, pid, EVENT_TYPE_MPROTECT,
+                 (void *)args->start, args->length);
 
     bpf_map_delete_elem(&mprotect_args, &key);
     return 0;
@@ -203,7 +209,7 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
 // Handle munmap
 SEC("tracepoint/syscalls/sys_enter_munmap")
 int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
-	__u64 addr = ctx->args[0];
+    __u64 addr = ctx->args[0];
     __u64 length = ctx->args[1];
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -217,11 +223,9 @@ int trace_enter_execve(struct trace_event_raw_sys_enter *ctx) {
     __u64 key = get_key();
     __u32 pid = key >> 32;
 
-    struct execve_args_t args = {
-        .filename_ptr = ctx->args[0],
-        .argv_ptr = ctx->args[1],
-        .envp_ptr = ctx->args[2]
-    };
+    struct execve_args_t args = {.filename_ptr = ctx->args[0],
+                                 .argv_ptr = ctx->args[1],
+                                 .envp_ptr = ctx->args[2]};
 
     bpf_map_update_elem(&execve_args, &key, &args, BPF_ANY);
 
