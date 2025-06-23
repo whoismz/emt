@@ -24,7 +24,7 @@ struct memory_event {
     __u64 timestamp;
     __u64 content_size;
     __u8 content[ONE_PAGE_SIZE];
-} __attribute__((packed));
+};
 
 // Ring buffer map for transferring data to user space
 struct {
@@ -81,14 +81,14 @@ struct {
 // Helper to get pid_tgid and pid
 static __always_inline __u64 get_key() { return bpf_get_current_pid_tgid(); }
 
-static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid,
-                         __u32 event_type, const void *data, __u32 data_len) {
-    __u32 total_fragments = (len + ONE_PAGE_SIZE - 1) / ONE_PAGE_SIZE;
-
-    const void *cur_data = data;
+// Dump the memory and send to userspace
+static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type,
+                         const void *data) {
+    __u64 num_pages = (len + ONE_PAGE_SIZE - 1) / ONE_PAGE_SIZE;
     __u64 cur_addr = addr;
-    
-    bpf_repeat(total_fragments) {
+    const void *cur_data = data;
+
+    bpf_repeat(num_pages) {
         struct memory_event *event =
             bpf_ringbuf_reserve(&events, sizeof(*event), 0);
 
@@ -102,7 +102,7 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid,
         event->timestamp = bpf_ktime_get_ns();
 
         long ret = bpf_probe_read_user(event->content, ONE_PAGE_SIZE, cur_data);
-        
+
         if (ret == 0) {
             event->content_size = ONE_PAGE_SIZE;
             bpf_ringbuf_submit(event, 0);
@@ -111,8 +111,8 @@ static void submit_event(void *ctx, __u64 addr, __u64 len, __u32 pid,
             bpf_ringbuf_submit(event, 0);
         }
 
-        cur_data += ONE_PAGE_SIZE;
         cur_addr += ONE_PAGE_SIZE;
+        cur_data += ONE_PAGE_SIZE;
     }
 }
 
@@ -151,15 +151,8 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     if (!args)
         return 0;
 
-    bool is_anonymous = args->flags & MAPPING_ANONYMOUS;
-
-    if (is_anonymous) {
-        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP, NULL,
-                     0);
-    } else {
-        submit_event(ctx, ctx->ret, args->length, pid, EVENT_TYPE_MMAP,
-                     (void *)ctx->ret, args->length);
-    }
+    submit_event(ctx->ret, args->length, pid, EVENT_TYPE_MMAP,
+                 (void *)ctx->ret);
 
     bpf_map_delete_elem(&mmap_args, &key);
     return 0;
@@ -199,8 +192,8 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     if (!args)
         return 0;
 
-    submit_event(ctx, args->start, args->length, pid, EVENT_TYPE_MPROTECT,
-                 (void *)args->start, args->length);
+    submit_event(args->start, args->length, pid, EVENT_TYPE_MPROTECT,
+                 (void *)args->start);
 
     bpf_map_delete_elem(&mprotect_args, &key);
     return 0;
@@ -213,7 +206,7 @@ int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
     __u64 length = ctx->args[1];
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    submit_event(ctx, addr, length, pid, EVENT_TYPE_MUNMAP, NULL, 0);
+    submit_event(addr, length, pid, EVENT_TYPE_MUNMAP, NULL);
     return 0;
 }
 
@@ -229,7 +222,7 @@ int trace_enter_execve(struct trace_event_raw_sys_enter *ctx) {
 
     bpf_map_update_elem(&execve_args, &key, &args, BPF_ANY);
 
-    submit_event(ctx, 0, 0, pid, EVENT_TYPE_EXECVE, NULL, 0);
+    submit_event(0, 0, pid, EVENT_TYPE_EXECVE, NULL);
     return 0;
 }
 

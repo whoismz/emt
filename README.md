@@ -81,7 +81,7 @@ In this situation: `mmap(W) -> writes bytes -> mprotect(X) -> executes`, we now 
 - Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
 - bpftool
 
-This project uses **BPF CO-RE** (Compile Once, Run Everywhere), which requires a `vmlinux.h` file generated from your system’s kernel BTF data. If `src/bpf/vmlinux.h` does not exist, the build script (build.rs) will automatically generate it by running:
+This project uses **BPF CO-RE** (Compile Once, Run Everywhere), which requires a `vmlinux.h` file generated from your system’s kernel BTF data. If `src/bpf/vmlinux.h` does not exist, the script `build.rs` will automatically generate it by running:
 
 ```bash
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
@@ -165,6 +165,6 @@ Second, when mmap allocates memory with execute permissions, `bpf_probe_read_use
 
 ## Acknowledgments
 
-This project was developed under the supervision of Prof. Aurélien Francillon and Marco Cavenati at EURECOM during Spring 2025.
+This project was developed under the supervision of **Prof. Aurélien Francillon** and **Marco Cavenati** at **EURECOM** during Spring 2025.
 
 <a href="#top">Back to top</a>
