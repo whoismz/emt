@@ -52,11 +52,13 @@ struct {
 } mprotect_args SEC(".maps");
 ```
 
-## CO‑RE & BTF
+## CO‑RE
 
-- Compiled with `-g -O2 -target bpf` via clang‑15+.
-- Relocations resolved at load‑time against `/sys/kernel/btf/vmlinux`.
-- Tip: To inspect final byte‑code: `bpftool prog dump xlated id <ID>.`
+This project uses BPF CO-RE (Compile Once, Run Everywhere), which requires a vmlinux.h file generated from your system’s kernel BTF data. If src/bpf/vmlinux.h does not exist, the script build.rs will automatically generate it by running:
+
+```bash
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
+```
 
 ## Helpers Used
 
