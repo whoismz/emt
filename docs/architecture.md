@@ -16,7 +16,7 @@ let mut tracer = Tracer::new(target_pid);
 tracer.start()?;
 ```
 
-### 2. Target process calls syscalls like `mmap/mprotect`. [Example](https://gist.github.com/markmont/dcd20d632fa753438f6fc1b3bb3711ec): 
+### 2. Target process calls syscalls like `mmap/mprotect`. [Example](https://gist.github.com/markmont/dcd20d632fa753438f6fc1b3bb3711ec):
 
 ```c
 /* source code: https://gist.github.com/markmont/dcd20d632fa753438f6fc1b3bb3711ec */

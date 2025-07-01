@@ -13,6 +13,7 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 - [Example](#example)
 - [Architecture](#architecture)
 - [eBPF](#ebpf-program-design)
+- [CI](#ci-settings-and-status)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 
@@ -47,24 +48,21 @@ emt/
 ## Requirements
 
 - Rust
-- `Clang/LLVM` and `libbpf`
+- Clang/LLVM and libbpf
 - Linux kernel with BPF support
-- Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
+- Root privileges or CAP_BPF or CAP_SYS_ADMIN
 - bpftool
 
 ## Building
 
 ```bash
-# 1. Install required packages
-sudo apt-get install clang llvm libbpf bpftool rustup # TO BE UPDATED
-
-# 2. Clone the emt repository
+# 1. Clone
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
-# 3. Build
+# 2. Build
 cargo build --release
 
-# 4. Test
+# 3. Test
 sudo cargo test
 ```
 
@@ -126,13 +124,20 @@ Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
 ## Architecture
+
 see [architecture.md](./docs/architecture.md)
 
 ## eBPF Program Design
+
 see [ebpf.md](./docs/ebpf.md)
 
 ## Testing
+
 see [testing.md](./docs/testing.md)
+
+## CI settings and status
+
+see [CI.md](./docs/CI.md)
 
 ## Limitations and Future Work
 

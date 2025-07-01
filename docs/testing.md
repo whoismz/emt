@@ -1,6 +1,6 @@
 # Testing
 
-Guide to tests for this project
+The project includes usage examples, target process demos, unit tests, and integration test suite that exercises the tracer end‑to‑end.
 
 ## Structure
 
@@ -28,6 +28,7 @@ cargo test --lib
 # Run integration tests (requires root/sudo)
 sudo cargo test --test integration_test
 ```
+
 > Running as a user with CAP_SYS_ADMIN/CAP_BPF is sufficient; sudo is shown for simplicity.
 
 ## Integration Tests
@@ -37,9 +38,11 @@ This integration test suite verifies the functionality of the memory tracer in r
 ### Test Cases
 
 #### 1. Tracer Lifecycle Management
+
 - Tests proper initialization, starting, and stopping of the tracer
 
 #### 2. Self-Tracing Memory Operations
+
 - Traces the current process's memory operations
 - Verifies detection of:
     - Memory mapping operations (mmap)
@@ -74,15 +77,15 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 fn test_new_feature() {
     // Setup
     let mut tracer = Tracer::new(target_pid);
-    
+
     // Execute
     tracer.start().unwrap();
-    
+
     // Do your operations here
     your_operations();
-    
+
     let pages = tracer.stop().unwrap();
-    
+
     // Verify
     assert_eq!(pages.len(), expected_count);
     // Additional assertions
