@@ -109,7 +109,7 @@ echo 1 | sudo tee /sys/kernel/debug/tracing/events/syscalls/sys_enter_mprotect/e
 echo 1 | sudo tee /sys/kernel/debug/tracing/events/syscalls/enable
 ```
 
-### 3. Reading debug output from `trace_pipe`:
+### Reading debug output from `trace_pipe`:
 
 ```bash
 sudo cat /sys/kernel/debug/tracing/trace_pipe
