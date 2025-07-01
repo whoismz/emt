@@ -13,7 +13,6 @@ What can we do with this BPF program:
 - Dump memory from the target process at target address.
 - Send structured memory page by page to userspace.
 
-
 ## Structure
 
 ```bash
@@ -30,9 +29,7 @@ src/bpf/
 | `mmap_args`     | BPF_MAP_TYPE_HASH    | Temporary mmap arguments      |
 | `mprotect_args` | BPF_MAP_TYPE_HASH    | Temporary mprotect arguments  |
 
-
 ```rust
-
 // Ring buffer map for transferring data to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -59,7 +56,7 @@ struct {
 
 - Compiled with `-g -O2 -target bpf` via clang‑15+.
 - Relocations resolved at load‑time against `/sys/kernel/btf/vmlinux`.
-> Tip: To inspect final byte‑code: `bpftool prog dump xlated id <ID>.`
+- Tip: To inspect final byte‑code: `bpftool prog dump xlated id <ID>.`
 
 ## Helpers Used
 
@@ -83,33 +80,43 @@ clang -g -O2 -target bpf -c memory_tracer.bpf.c
 
 ## Debugging
 
-### Insert `bpf_printk()`
-
-> Supports up to 3 arguments; format specifiers %d, %u, %llu, %s (no floats).
+### Insert debug prints `bpf_printk()`
 
 ```c
-SEC("tracepoint/sys_enter_mprotect")
-int enter_mprotect(struct trace_event_raw_sys_enter *ctx)
-{
+SEC("tracepoint/syscalls/sys_enter_mprotect")
+int enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
     u64 prot = ctx->args[2];
 
-    /* This line shows up in trace_pipe */
-    bpf_printk("mprotect prot=%llu\\n", prot);
+    // Debug print (visible in trace_pipe)
+    bpf_printk("PROT: 0x%llx | PID: %d", prot, bpf_get_current_pid_tgid() >> 32);
 
-    /* ... */
     return 0;
 }
 ```
 
-### View printk stream
+### Enabling trace events
+
+- Disable: 0
+- Enable: 1
+
+```bash
+# Enable specific event
+echo 1 | sudo tee /sys/kernel/debug/tracing/events/syscalls/sys_enter_mprotect/enable
+
+# Enable all syscalls (noisy!)
+echo 1 | sudo tee /sys/kernel/debug/tracing/events/syscalls/enable
+```
+
+### 3. Reading debug output from `trace_pipe`:
 
 ```bash
 sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+# Example output:
+firefox-2303    [006] ...21 112636.673779: bpf_trace_printk: PROT: 0x5 | PID: 2303
 ```
 
-Example output:
-```bash
-<emt>-1234 [000] d..3 123456.789: mprotect prot=5
-```
+> Reference
+> https://www.kernel.org/doc/html/v5.5/trace/ftrace.html#trace-pipe
 
 <a href="#top">Back to top</a>
