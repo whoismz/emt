@@ -88,6 +88,7 @@ fn test_new_feature() {
 
     // Verify
     assert_eq!(pages.len(), expected_count);
+
     // Additional assertions
 }
 ```

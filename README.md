@@ -11,9 +11,11 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 - [Building](#building)
 - [Usage](#usage)
 - [Example](#example)
-- [Architecture](#architecture)
-- [eBPF](#ebpf-program-design)
-- [CI](#ci-settings-and-status)
+- [Project Architecture](#project-architecture)
+- [eBPF Internals](#ebpf-internals)
+- [Testing](#testing)
+- [CI](#ci)
+- [Limitations and Future Work](#limitations-and-future-work)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 
@@ -39,7 +41,7 @@ emt/
 │   ├── integration_test.rs             # Integration tests
 │   └── common/
 │       └── mod.rs                      # Common test utilities
-├── docs/                               # Extended documentation
+├── docs/                               # Detailed documentations
 ├── build.rs                            # Build script for this project
 ├── Cargo.toml                          # Project dependencies and configuration
 └── README.md                           # Project documentation
@@ -123,11 +125,11 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
-## Architecture
+## Project Architecture
 
 see [architecture.md](./docs/architecture.md)
 
-## eBPF Program Design
+## eBPF Internals
 
 see [ebpf.md](./docs/ebpf.md)
 
@@ -135,15 +137,13 @@ see [ebpf.md](./docs/ebpf.md)
 
 see [testing.md](./docs/testing.md)
 
-## CI settings and status
+## CI
 
 see [CI.md](./docs/CI.md)
 
 ## Limitations and Future Work
 
-First, when memory regions have both write (W) and execute (X) permissions simultaneously, the tracer cannot detect runtime memory modifications since it only monitors syscall-level operations.
-
-Second, when mmap allocates memory with execute permissions, `bpf_probe_read_user` cannot safely dump memory content without triggering page faults, creating race conditions between allocation.
+see [limitations_and_future_work.md](./docs/limitations_and_future_work.md)
 
 ## Acknowledgments
 
