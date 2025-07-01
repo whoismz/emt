@@ -7,15 +7,14 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 ## Table of Contents
 
 - [Structure](#structure)
-- [Architecture and Design](#architecture-and-design)
-  - [Overview](#overview)
-  - [eBPF](#ebpf)
 - [Requirements](#requirements)
 - [Building](#building)
 - [Usage](#usage)
 - [Example](#example)
-- [Limitations and Future work](#limitations-and-future-work)
+- [Architecture](#architecture)
+- [eBPF](#ebpf-program-design)
 - [Acknowledgments](#acknowledgments)
+- [License](#license)
 
 ## Structure
 
@@ -39,39 +38,11 @@ emt/
 │   ├── integration_test.rs             # Integration tests
 │   └── common/
 │       └── mod.rs                      # Common test utilities
+├── docs/                               # Extended documentation
 ├── build.rs                            # Build script for this project
 ├── Cargo.toml                          # Project dependencies and configuration
 └── README.md                           # Project documentation
 ```
-
-## Architecture and Design
-
-### Overview
-
-![arch](./docs/images/architecture.svg)
-
-### eBPF
-
-This eBPF program monitors memory operations in the Linux kernel through tracepoints, capturing:
-
-- Memory mapping operations (`mmap`/`munmap`)
-- Protection changes (`mprotect`)
-
-see [memory_tracer.bpf.c](./src/bpf/memory_tracer.bpf.c)
-
-#### eBPF Maps
-
-| Map Name        | Type                 | Purpose                       |
-| --------------- | -------------------- | ----------------------------- |
-| `events`        | BPF_MAP_TYPE_RINGBUF | Event transport to user space |
-| `mmap_args`     | BPF_MAP_TYPE_HASH    | Temporary mmap arguments      |
-| `mprotect_args` | BPF_MAP_TYPE_HASH    | Temporary mprotect arguments  |
-
-#### How the eBPF program works
-
-In this situation: `mmap(W) -> writes bytes -> mprotect(X) -> executes`, we now can capture memory events and dump the bytes written without race conditions.
-
-![bpf](./docs/images/bpf.svg)
 
 ## Requirements
 
@@ -81,22 +52,19 @@ In this situation: `mmap(W) -> writes bytes -> mprotect(X) -> executes`, we now 
 - Root privileges or `CAP_BPF` or `CAP_SYS_ADMIN`
 - bpftool
 
-This project uses **BPF CO-RE** (Compile Once, Run Everywhere), which requires a `vmlinux.h` file generated from your system’s kernel BTF data. If `src/bpf/vmlinux.h` does not exist, the script `build.rs` will automatically generate it by running:
-
-```bash
-bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
-```
-
 ## Building
 
 ```bash
-# clone the emt repository
+# 1. Install required packages
+sudo apt-get install clang llvm libbpf bpftool rustup # TO BE UPDATED
+
+# 2. Clone the emt repository
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
-# build it
+# 3. Build
 cargo build --release
 
-# test it (sudo for testing current process itself)
+# 4. Test
 sudo cargo test
 ```
 
@@ -157,6 +125,15 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
+## Architecture
+see [architecture.md](./docs/architecture.md)
+
+## eBPF Program Design
+see [ebpf.md](./docs/ebpf.md)
+
+## Testing
+see [testing.md](./docs/testing.md)
+
 ## Limitations and Future Work
 
 First, when memory regions have both write (W) and execute (X) permissions simultaneously, the tracer cannot detect runtime memory modifications since it only monitors syscall-level operations.
@@ -167,4 +144,6 @@ Second, when mmap allocates memory with execute permissions, `bpf_probe_read_use
 
 This project was developed under the supervision of **Prof. Aurélien Francillon** and **Marco Cavenati** at **EURECOM** during Spring 2025.
 
-<a href="#top">Back to top</a>
+## License
+
+<a href="#emt">Back to top</a>
