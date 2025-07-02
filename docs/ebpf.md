@@ -119,6 +119,6 @@ firefox-2303    [006] ...21 112636.673779: bpf_trace_printk: PROT: 0x5 | PID: 23
 ```
 
 > Reference
-> https://www.kernel.org/doc/html/v5.5/trace/ftrace.html#trace-pipe
+> https://www.kernel.org/doc/html/latest/trace/ftrace.html#trace-pipe
 
 <a href="#top">Back to top</a>
