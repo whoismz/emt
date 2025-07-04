@@ -80,10 +80,11 @@ impl EventHandler {
         pages
     }
 
-    /// Returns a sorted (by addr) list of all currently known pages.
+    /// Returns a sorted list of all currently known pages, sorted by timestamp (ascending).
+    /// Pages with equal timestamps are sorted by address (ascending).
     pub fn get_all_pages(&self) -> Vec<Page> {
         let mut pages: Vec<Page> = self.known_pages.values().cloned().collect();
-        pages.sort_by_key(|page| page.addr);
+        pages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.addr.cmp(&b.addr)));
         pages
     }
 
@@ -100,7 +101,7 @@ impl EventHandler {
         }
 
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
-        
+
         if !matches!(event.event_type, EventType::Unmap) {
             debug!(
                 "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}",

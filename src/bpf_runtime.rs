@@ -187,7 +187,7 @@ impl From<RawMemoryEvent> for Event {
             2 => EventType::Mprotect,
             _ => EventType::Map,
         };
-        
+
         let content = if raw.content_size > 0 as u64 {
             Some(raw.content[..raw.content_size as usize].to_vec())
         } else {

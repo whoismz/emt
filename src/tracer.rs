@@ -116,6 +116,7 @@ impl Tracer {
             // Process events from event_rx channel
             while let Ok(event) = event_rx.try_recv() {
                 if !handler.process(event) {
+                    bpf_runtime.poll(Duration::from_millis(0))?;
                     running = false;
                     break;
                 }
