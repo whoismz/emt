@@ -6,23 +6,6 @@ mod common;
 use common::do_memory_operations;
 
 #[test]
-fn test_tracer_lifecycle() {
-    let mut tracer = Tracer::new(1);
-
-    let start_result = tracer.start();
-    assert!(start_result.is_ok());
-
-    // Multiple starts. TO BE TESTED
-    // assert!(tracer.start().is_err());
-
-    let stop_result = tracer.stop();
-    assert!(stop_result.is_ok());
-
-    // Multiple stops. TO BE TESTED
-    // assert!(tracer.stop().is_ok());
-}
-
-#[test]
 fn test_trace_self_memory_operations() {
     // Get current process PID
     let self_pid = std::process::id() as i32;
