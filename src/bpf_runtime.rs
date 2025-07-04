@@ -49,9 +49,9 @@ impl BpfRuntime {
         // Load BPF object
         let mut bpf_object = ObjectBuilder::default()
             .open_file(bpf_path)
-            .map_err(|e| EmtError::OpenBpfError(format!("Failed to open BPF object file: {}", e)))?
+            .map_err(|e| EmtError::OpenBpfError(format!("Failed to open BPF object file: {e}")))?
             .load()
-            .map_err(|e| EmtError::LoadBpfError(format!("Failed to load BPF object: {}", e)))?;
+            .map_err(|e| EmtError::LoadBpfError(format!("Failed to load BPF object: {e}")))?;
 
         // Attach probes and initialize the ring buffer
         self.attach_probes(&mut bpf_object)?;
@@ -104,11 +104,11 @@ impl BpfRuntime {
                 Self::handle_ringbuf_event(data, &event_tx, target_pid);
                 0
             })
-            .map_err(|e| EmtError::RingBufInit(format!("Failed to add callback: {}", e)))?;
+            .map_err(|e| EmtError::RingBufInit(format!("Failed to add callback: {e}")))?;
 
         self.ring_buffer =
             Some(builder.build().map_err(|e| {
-                EmtError::RingBufInit(format!("Failed to create ring buffer: {}", e))
+                EmtError::RingBufInit(format!("Failed to create ring buffer: {e}"))
             })?);
 
         Ok(())
@@ -188,7 +188,7 @@ impl From<RawMemoryEvent> for Event {
             _ => EventType::Map,
         };
 
-        let content = if raw.content_size > 0 as u64 {
+        let content = if raw.content_size > 0_u64 {
             Some(raw.content[..raw.content_size as usize].to_vec())
         } else {
             None
@@ -199,19 +199,16 @@ impl From<RawMemoryEvent> for Event {
             + Duration::from_secs(boot_time)
             + Duration::from_nanos(raw.timestamp);
 
-        let timestamp_str: String = match DateTime::<Utc>::from(timestamp)
+        let timestamp_str: String = DateTime::<Utc>::from(timestamp)
             .format("%Y-%m-%d %H:%M:%S%.3f")
-            .to_string()
-        {
-            s => s,
-        };
+            .to_string();
 
         Event {
             event_type,
             addr: raw.addr as usize,
             size: raw.length as usize,
-            timestamp: timestamp,
-            timestamp_str: timestamp_str,
+            timestamp,
+            timestamp_str,
             pid: raw.pid as i32,
             content,
         }

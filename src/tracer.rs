@@ -56,7 +56,7 @@ impl Tracer {
             let mut pages = Vec::new();
 
             if let Err(e) = Self::run(target_pid, event_tx, event_rx, &mut pages) {
-                error!("Tracer error: {:?}", e);
+                error!("Tracer error: {e:?}");
             }
 
             pages
@@ -110,7 +110,7 @@ impl Tracer {
         while running {
             // Poll BPF ringbuf for events, which trigger event_tx.send()
             if let Err(e) = bpf_runtime.poll(Duration::from_millis(100)) {
-                error!("Error polling BPF events: {:?}", e);
+                error!("Error polling BPF events: {e:?}");
             }
 
             // Process events from event_rx channel

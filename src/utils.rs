@@ -7,7 +7,7 @@ pub fn print_memory_content(content: &[u8], address: usize) {
         let mut hex_line = format!("0x{:08x}: ", address + i * BYTES_PER_ROW);
 
         for (j, byte) in chunk.iter().enumerate() {
-            hex_line.push_str(&format!("{:02x} ", byte));
+            hex_line.push_str(&format!("{byte:02x} "));
             if j == 7 {
                 hex_line.push(' ');
             }
@@ -21,15 +21,16 @@ pub fn print_memory_content(content: &[u8], address: usize) {
         }
 
         hex_line.push_str(" | ");
-        for &byte in chunk {
-            if byte >= 32 && byte <= 126 {
+        for &byte in chunk.iter() {
+            let byte: u8 = byte;
+            if (32..=126).contains(&byte) {
                 hex_line.push(byte as char);
             } else {
                 hex_line.push('.');
             }
         }
 
-        debug!("{}", hex_line);
+        debug!("{hex_line}");
     }
 }
 
