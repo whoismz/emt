@@ -58,6 +58,9 @@ emt/
 ## Building
 
 ```bash
+# 0. Install packages required on Ubuntu 24.04.2 LTS
+sudo apt install rustup libbpf-dev llvm clang pkg-config
+
 # 1. Clone
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
