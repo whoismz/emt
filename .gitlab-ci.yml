@@ -7,7 +7,8 @@ build:
   image: ubuntu:latest
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq clang llvm libbpf-dev make libelf-dev pkg-config build-essential 
+    - apt-get install -y -qq rustup clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+    - rustup default stable
   script:
     - cargo build --release
   artifacts:
@@ -23,7 +24,8 @@ test:
   image: ubuntu:latest
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+    - apt-get install -y -qq sudo rustup clang llvm libbpf-dev make libelf-dev pkg-config build-essential
+    - rustup default stable
 
     # Setup eBPF environment
     - mount -t debugfs debugfs /sys/kernel/debug
