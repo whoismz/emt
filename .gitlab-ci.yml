@@ -1,9 +1,3 @@
-variables:
-  HTTP_PROXY: "http://127.0.0.1:7897"
-  HTTPS_PROXY: "http://127.0.0.1:7897"
-  NO_PROXY: "localhost,127.0.0.1, gitlab.eurecom.fr"
-
-
 stages:
   - build
   - test
@@ -15,7 +9,7 @@ build:
     - apt-get update -qq
     - apt-get install -y -qq clang llvm libbpf-dev make libelf-dev pkg-config build-essential 
   script:
-    - cargo build
+    - cargo build --release
   artifacts:
     paths:
       - target/debug/
@@ -36,7 +30,7 @@ test:
     - mount -t bpf bpf /sys/fs/bpf
   script:
     - ps aux
-    - cargo test -- --skip test_trace_self_memory_operations
+    - cargo test
   dependencies:
     - build
   allow_failure: true
