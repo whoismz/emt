@@ -4,7 +4,7 @@ stages:
 
 build:
   stage: build
-  image: rust:latest
+  image: ubuntu:latest
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq clang llvm libbpf-dev make libelf-dev pkg-config build-essential 
@@ -20,7 +20,7 @@ test:
   stage: test
   tags:
     - privileged 
-  image: rust:latest
+  image: ubuntu:latest
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq sudo clang llvm libbpf-dev make libelf-dev pkg-config build-essential
