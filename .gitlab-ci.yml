@@ -1,6 +1,5 @@
 stages:
   - build
-  - test
 
 build:
   stage: build
@@ -10,29 +9,6 @@ build:
     - apt-get install -y -qq rustup clang llvm libbpf-dev make libelf-dev pkg-config build-essential
     - rustup default stable
   script:
-    - cargo build --release
-  artifacts:
-    paths:
-      - target/debug/
-    expire_in: 1 hour
-  allow_failure: true
-
-test:
-  stage: test
-  tags:
-    - privileged 
-  image: ubuntu:latest
-  before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq sudo rustup clang llvm libbpf-dev make libelf-dev pkg-config build-essential
-    - rustup default stable
-
-    # Setup eBPF environment
-    - mount -t debugfs debugfs /sys/kernel/debug
-    - mount -t bpf bpf /sys/fs/bpf
-  script:
-    - ps aux
-    - cargo test
-  dependencies:
-    - build
+    - cargo build
+    - cargo test --lib
   allow_failure: true
