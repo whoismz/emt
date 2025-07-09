@@ -79,11 +79,11 @@ bpf_repeat(num_pages) {
 
     if (ret == 0) {
         event->content_size = ONE_PAGE_SIZE;
-        bpf_ringbuf_submit(event, 0);
     } else {
         event->content_size = 0;
-        bpf_ringbuf_submit(event, 0);
     }
+    
+    bpf_ringbuf_submit(event, 0);
     // ...
 }
 ```

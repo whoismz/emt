@@ -105,11 +105,11 @@ static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type,
 
         if (ret == 0) {
             event->content_size = ONE_PAGE_SIZE;
-            bpf_ringbuf_submit(event, 0);
         } else {
             event->content_size = 0;
-            bpf_ringbuf_submit(event, 0);
         }
+        
+        bpf_ringbuf_submit(event, 0);
 
         cur_addr += ONE_PAGE_SIZE;
         cur_data += ONE_PAGE_SIZE;
