@@ -7,7 +7,6 @@ use crate::models::{Event, EventType, Page};
 use crate::utils;
 
 const PAGE_SIZE: usize = 4096;
-const PAGE_MASK: usize = PAGE_SIZE - 1;
 
 /// Handles memory events and keeps track of memory pages for a specific target PID.
 pub struct EventHandler {
@@ -26,58 +25,17 @@ impl EventHandler {
         }
     }
 
-    /// Extracts raw memory data from a page in the event
-    fn extract_page_content(event_content: &[u8], page_offset: usize) -> Option<Vec<u8>> {
-        if page_offset >= event_content.len() {
-            return None;
-        }
-
-        let mut page_content = vec![0u8; PAGE_SIZE];
-
-        page_content[0..PAGE_SIZE]
-            .copy_from_slice(&event_content[page_offset..page_offset + PAGE_SIZE]);
-
-        Some(page_content)
-    }
-
     /// Divides a memory event into one or more memory pages.
-    fn get_pages_from_event(event: Event) -> Vec<Page> {
-        let event_addr = event.addr;
-        let event_size = event.size;
-        let event_timestamp = event.timestamp_str;
-        let event_content = event.content;
-
-        if event_size == 0 {
-            return vec![];
-        }
-
-        let event_end = event_addr + event_size;
-        let first_page_addr = event_addr & !PAGE_MASK;
-        let last_page_addr = (event_end - 1) & !PAGE_MASK;
-
-        let mut pages = Vec::new();
-        let mut current_page_addr = first_page_addr;
-
-        while current_page_addr <= last_page_addr {
-            let page_offset_in_event = current_page_addr - event_addr;
-
-            let page_content = if let Some(ref content) = event_content {
-                Self::extract_page_content(content, page_offset_in_event)
-            } else {
-                None
-            };
-
-            pages.push(Page {
-                addr: current_page_addr,
-                size: PAGE_SIZE,
-                timestamp: event_timestamp.clone(),
-                source_file: None,
-                content: page_content,
-            });
-            current_page_addr += PAGE_SIZE;
-        }
-
-        pages
+    fn get_page_from_event(event: Event) -> Page {
+        let page = Page {
+            addr: event.addr,
+            size: PAGE_SIZE,
+            timestamp: event.timestamp_str,
+            source_file: None,
+            content: event.content,
+        };
+        
+        page
     }
 
     /// Returns a sorted list of all currently known pages, sorted by timestamp (ascending).
@@ -115,25 +73,18 @@ impl EventHandler {
 
         match event.event_type {
             EventType::Map => {
-                let event_pages = EventHandler::get_pages_from_event(event);
-                for page in event_pages {
-                    self.known_pages.insert(page.addr, page);
-                }
+                let page = EventHandler::get_page_from_event(event);
+                self.known_pages.insert(page.addr, page);
             }
 
             EventType::Mprotect => {
-                let event_pages = EventHandler::get_pages_from_event(event);
-                for page in event_pages {
-                    self.known_pages.insert(page.addr, page);
-                }
+                let page = EventHandler::get_page_from_event(event);
+                self.known_pages.insert(page.addr, page);
             }
 
             EventType::Unmap => {
-                let event_pages = EventHandler::get_pages_from_event(event);
-
-                for page in event_pages {
-                    self.known_pages.remove(&page.addr);
-                }
+                let page = EventHandler::get_page_from_event(event);
+                self.known_pages.remove(&page.addr);
             }
         }
         true
@@ -169,7 +120,7 @@ mod tests {
     #[test]
     fn test_get_pages_from_event_page_aligned() {
         let event = create_test_event(EventType::Map, 0x2000, 0x1000, 1);
-        let pages = EventHandler::get_pages_from_event(event);
+        let pages = EventHandler::get_page_from_event(event);
 
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].addr, 0x2000);
@@ -178,7 +129,7 @@ mod tests {
     #[test]
     fn test_get_pages_from_event_zero_size() {
         let event = create_test_event(EventType::Map, 0x1000, 0, 1);
-        let pages = EventHandler::get_pages_from_event(event);
+        let pages = EventHandler::get_page_from_event(event);
 
         assert_eq!(pages.len(), 0);
     }

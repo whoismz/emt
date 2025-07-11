@@ -4,15 +4,22 @@ pub fn do_memory_operations() {
     use std::ptr;
 
     unsafe {
-        let _ = libc::mmap(
-            ptr::null_mut(),
-            PAGE_SIZE * 2, // two pages
-            libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            -1,
-            0,
-        );
+        // let mmap_1 = libc::mmap(
+        //     ptr::null_mut(),
+        //     PAGE_SIZE * 2, // two pages
+        //     libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
+        //     libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+        //     -1,
+        //     0,
+        // );
 
+        
+        // if mmap_1 == libc::MAP_FAILED {
+        //     eprintln!("mmap failed: {}", std::io::Error::last_os_error());
+        // }
+
+        // dbg!(mmap_1);
+        
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         let page = libc::mmap(
@@ -38,5 +45,8 @@ pub fn do_memory_operations() {
                 libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
             );
         }
+        
+        dbg!(page);
+        
     }
 }

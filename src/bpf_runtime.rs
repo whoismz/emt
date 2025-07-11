@@ -124,7 +124,9 @@ impl BpfRuntime {
 
             if raw_event.pid as i32 == target_pid {
                 let event = Event::from(raw_event);
-                let _ = event_tx.send(event);
+                if let Err(e) = event_tx.send(event) {
+                    eprintln!("Failed to send event: {}", e);
+                }
             }
         }
     }

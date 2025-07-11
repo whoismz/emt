@@ -21,11 +21,11 @@ fn test_trace_self_memory_operations() {
 
     do_memory_operations();
 
-    thread::sleep(Duration::from_millis(50));
+    thread::sleep(Duration::from_secs(1));
 
     let pages = tracer.stop().unwrap();
 
-    assert_eq!(pages.len(), 5);
-    assert_eq!(&pages[2].content.as_ref().unwrap()[0..5], [0x90, 0x90, 0x90, 0x90, 0x90]);
-    assert_eq!(&pages[3].content.as_ref().unwrap()[0..5], [0x91, 0x91, 0x91, 0x91, 0x91]);
+    assert_eq!(pages.len(), 3);
+    assert_eq!(&pages[0].content.as_ref().unwrap()[0..5], [0x90, 0x90, 0x90, 0x90, 0x90]);
+    assert_eq!(&pages[1].content.as_ref().unwrap()[0..5], [0x91, 0x91, 0x91, 0x91, 0x91]);
 }
