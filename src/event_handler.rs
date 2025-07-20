@@ -27,15 +27,13 @@ impl EventHandler {
 
     /// Divides a memory event into one or more memory pages.
     fn get_page_from_event(event: Event) -> Page {
-        let page = Page {
+        Page {
             addr: event.addr,
             size: PAGE_SIZE,
             timestamp: event.timestamp_str,
             source_file: None,
             content: event.content,
-        };
-        
-        page
+        }
     }
 
     /// Returns a sorted list of all currently known pages, sorted by timestamp (ascending).

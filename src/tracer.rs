@@ -122,9 +122,9 @@ impl Tracer {
                 }
             }
         }
-
-        bpf_runtime.stop()?;
+        
         *pages = handler.get_all_pages();
+        bpf_runtime.stop()?;
 
         Ok(())
     }
