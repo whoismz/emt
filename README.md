@@ -154,4 +154,8 @@ This project was developed under the supervision of **Prof. Aurélien Francillon
 
 ## License
 
+With the exception of eBPF code, everything is distributed under the terms of the [MIT license](./LICENSE-MIT).
+
+All eBPF code is distributed under the terms of the [GPL-2.0-only](./LICENSE-GPL2).
+
 <a href="#top">Back to top</a>
