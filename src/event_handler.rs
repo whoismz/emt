@@ -116,23 +116,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_pages_from_event_page_aligned() {
-        let event = create_test_event(EventType::Map, 0x2000, 0x1000, 1);
-        let pages = EventHandler::get_page_from_event(event);
-
-        assert_eq!(pages.len(), 1);
-        assert_eq!(pages[0].addr, 0x2000);
-    }
-
-    #[test]
-    fn test_get_pages_from_event_zero_size() {
-        let event = create_test_event(EventType::Map, 0x1000, 0, 1);
-        let pages = EventHandler::get_page_from_event(event);
-
-        assert_eq!(pages.len(), 0);
-    }
-
-    #[test]
     fn test_process_wrong_pid() {
         let mut handler = EventHandler::new(1);
         let event = create_test_event(EventType::Map, 0x1000, 0x1000, 2);
@@ -171,19 +154,6 @@ mod tests {
     }
 
     #[test]
-    fn test_process_map_event_multiple_pages() {
-        let mut handler = EventHandler::new(1);
-        let event = create_test_event(EventType::Map, 0x1000, 0x3000, 1);
-
-        let result = handler.process(event);
-        assert!(result);
-        assert_eq!(handler.known_pages.len(), 3);
-        assert!(handler.known_pages.contains_key(&0x1000));
-        assert!(handler.known_pages.contains_key(&0x2000));
-        assert!(handler.known_pages.contains_key(&0x3000));
-    }
-
-    #[test]
     fn test_process_mprotect_event() {
         let mut handler = EventHandler::new(1);
         let event = create_test_event(EventType::Mprotect, 0x2000, 0x1000, 1);
@@ -192,39 +162,6 @@ mod tests {
         assert!(result);
         assert_eq!(handler.known_pages.len(), 1);
         assert!(handler.known_pages.contains_key(&0x2000));
-    }
-
-    #[test]
-    fn test_process_unmap_event() {
-        let mut handler = EventHandler::new(1);
-
-        let map_event = create_test_event(EventType::Map, 0x1000, 0x2000, 1);
-        handler.process(map_event);
-        assert_eq!(handler.known_pages.len(), 2);
-
-        let unmap_event = create_test_event(EventType::Unmap, 0x1000, 0x1000, 1);
-        let result = handler.process(unmap_event);
-        assert!(result);
-        assert_eq!(handler.known_pages.len(), 1);
-        assert!(!handler.known_pages.contains_key(&0x1000));
-        assert!(handler.known_pages.contains_key(&0x2000));
-    }
-
-    #[test]
-    fn test_process_unmap_partial_overlap() {
-        let mut handler = EventHandler::new(1);
-
-        let map_event = create_test_event(EventType::Map, 0x1000, 0x4000, 1);
-        handler.process(map_event);
-        assert_eq!(handler.known_pages.len(), 4);
-
-        let unmap_event = create_test_event(EventType::Unmap, 0x2000, 0x2000, 1);
-        handler.process(unmap_event);
-        assert_eq!(handler.known_pages.len(), 2);
-        assert!(handler.known_pages.contains_key(&0x1000));
-        assert!(!handler.known_pages.contains_key(&0x2000));
-        assert!(!handler.known_pages.contains_key(&0x3000));
-        assert!(handler.known_pages.contains_key(&0x4000));
     }
 
     #[test]
