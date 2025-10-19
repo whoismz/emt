@@ -4,7 +4,7 @@ High-level overview of interactions between the target process, in-kernel eBPF p
 
 ## Overview
 
-![architecture](./images/architecture.svg)
+![architecture](./images/architecture.png)
 
 ### 1. Start tracer on target PID, then load BPF object and attach probes.
 
@@ -82,7 +82,7 @@ bpf_repeat(num_pages) {
     } else {
         event->content_size = 0;
     }
-    
+
     bpf_ringbuf_submit(event, 0);
     // ...
 }
