@@ -18,24 +18,29 @@ tracer.start()?;
 
 ### 2. Target process calls syscalls like `mmap/mprotect`.
 
-[Example](https://gist.github.com/markmont/dcd20d632fa753438f6fc1b3bb3711ec):
+[Here](https://stackoverflow.com/questions/28015876/what-do-i-have-to-do-to-execute-code-in-data-areas-segment-protection) is an example, which allocates writable memory, writes machine code, marks that memory executable, and then calls it.
 
 ```c
-/* source code: https://gist.github.com/markmont/dcd20d632fa753438f6fc1b3bb3711ec */
+#include <stdio.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/mman.h>   /* mmap(), mprotect() */
 
 static uint8_t code[] = {
     0xB8,0x2A,0x00,0x00,0x00,   /* mov  eax,0x2a    */
     0xC3,                       /* ret              */
 };
 
-int main(void) {
+int main(void)
+{
     const size_t len = sizeof(code);
 
     /* mmap a region for our code */
     void *p = mmap(NULL, len, PROT_READ|PROT_WRITE,  /* No PROT_EXEC */
             MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (p==MAP_FAILED) {
-        perror("mmap() failed");
+        fprintf(stderr, "mmap() failed\n");
         return 2;
     }
 
@@ -44,7 +49,7 @@ int main(void) {
 
     /* Now make it execute-only */
     if (mprotect(p, len, PROT_EXEC) < 0) {
-        perror("mprotect failed to mark exec-only");
+        fprintf(stderr, "mprotect failed to mark exec-only\n");
         return 2;
     }
 
@@ -52,13 +57,14 @@ int main(void) {
     int (*func)(void) = p;
     printf("(dynamic) code returned %d\n", func());
 
+    pause();
     return 0;
 }
 ```
 
 ### 3 Capture syscall args and returns.
 
-see the source code [memory_tracer.bpf.c](../src/bpf/memory_tracer.bpf.c) and its technical documentation [ebpf.md](ebpf.md).
+See the source code [memory_tracer.bpf.c](../src/bpf/memory_tracer.bpf.c) and its technical documentation [ebpf.md](ebpf.md).
 
 The kernel component attaches to tracepoints: `sys_enter_mmap`, `sys_exit_mmap`, `sys_enter_munmap`, `sys_enter_mprotect`, and `sys_exit_mprotect`. This dual-phase approach captures complete syscall context including arguments at entry and return values at exit.
 
@@ -90,6 +96,16 @@ bpf_repeat(num_pages) {
 
 ### 5. Parse received events and get memory pages.
 
-The EventHandler receives raw events and transforms them into structured Page objects. Each page contains the virtual address, size, timestamp, and dumped memory content when available.
+The [EventHandler](../src/event_handler.rs) receives raw events from bpf side and transforms them into structured [Page](../src/models.rs) objects. As below, each page contains the virtual address, size, timestamp, and dumped memory content if possible.
+
+```rust
+pub struct Page {
+    pub addr: usize,
+    pub size: usize,
+    pub timestamp: String,
+    pub source_file: Option<PathBuf>,
+    pub content: Option<Vec<u8>>,
+}
+```
 
 <a href="#top">Back to top</a>
