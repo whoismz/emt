@@ -128,29 +128,21 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
-## Project Architecture
+## More details
 
-see [architecture.md](./docs/architecture.md)
+- Architecture: see [architecture.md](./docs/architecture.md)
 
-## eBPF Internals
+- eBPF: see [ebpf.md](./docs/ebpf.md)
 
-see [ebpf.md](./docs/ebpf.md)
+- Testing: see [testing.md](./docs/testing.md)
 
-## Testing
+- CI: see [CI.md](./docs/CI.md)
 
-see [testing.md](./docs/testing.md)
-
-## CI
-
-see [CI.md](./docs/CI.md)
-
-## Limitations and Future Work
-
-see [limitations_and_future_work.md](./docs/limitations_and_future_work.md)
+- Limitations and Future Work: see [limitations_and_future_work.md](./docs/limitations_and_future_work.md)
 
 ## Acknowledgments
 
-This project was developed under the supervision of **Prof. Aurélien Francillon** and **Marco Cavenati** at **EURECOM** during Spring 2025.
+This project is being developed under the supervision of Prof. Aurélien Francillon and Marco Cavenati at EURECOM.
 
 ## License
 

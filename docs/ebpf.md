@@ -4,7 +4,7 @@ Deep dive into [memory_tracer.bpf.c](../src/bpf/memory_tracer.bpf.c)
 
 ## Overview
 
-![bpf](./images/bpf.png)
+![bpf](./images/bpf.svg)
 
 What can we do with this BPF program:
 
