@@ -11,11 +11,7 @@ It tracks syscalls like `mmap` and `mprotect` to monitor memory regions that gai
 - [Building](#building)
 - [Usage](#usage)
 - [Example](#example)
-- [Project Architecture](#project-architecture)
-- [eBPF Internals](#ebpf-internals)
-- [Testing](#testing)
-- [CI](#ci)
-- [Limitations and Future Work](#limitations-and-future-work)
+- [Details](#details)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 
@@ -128,7 +124,7 @@ Page 2: 0x0000000015910000 - 0x0000000015910fff (4096 bytes) at 2077-10-23 03:39
 Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 ```
 
-## More details
+## Details
 
 - Architecture: see [architecture.md](./docs/architecture.md)
 
