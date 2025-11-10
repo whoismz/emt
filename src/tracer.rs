@@ -40,10 +40,10 @@ impl Tracer {
 
         // Check if the target PID exists
         let pid = Pid::from_raw(self.target_pid);
-        if let Err(err) = kill(pid, None) {
-            if err != Errno::EPERM {
-                return Err(EmtError::InvalidPid(self.target_pid));
-            }
+        if let Err(err) = kill(pid, None)
+            && err != Errno::EPERM
+        {
+            return Err(EmtError::InvalidPid(self.target_pid));
         }
 
         let (event_tx, event_rx) = channel();
@@ -122,7 +122,7 @@ impl Tracer {
                 }
             }
         }
-        
+
         *pages = handler.get_all_pages();
         bpf_runtime.stop()?;
 
