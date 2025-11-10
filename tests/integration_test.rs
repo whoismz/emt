@@ -26,7 +26,7 @@ fn test_trace_self_memory_operations() {
 
     let pages = tracer.stop().unwrap();
 
-    assert_eq!(pages.len(), 3);
+    assert_eq!(pages.len(), 5);
 
     let check = |page_idx: usize, byte_val: u8| {
         let content = pages[page_idx].content.as_ref().unwrap();
@@ -38,7 +38,7 @@ fn test_trace_self_memory_operations() {
         }
     };
 
-    check(0, 0x90);
-    check(1, 0x91);
-    check(2, 0xA0);
+    check(2, 0x90);
+    check(3, 0x91);
+    check(4, 0xA0);
 }
