@@ -18,8 +18,6 @@ fn test_trace_self_memory_operations() {
         return;
     }
 
-    thread::sleep(Duration::from_millis(50));
-
     do_memory_operations();
 
     thread::sleep(Duration::from_secs(1));
