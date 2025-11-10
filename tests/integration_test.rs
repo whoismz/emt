@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 mod common;
+use common::WRITE_SIZE;
 use common::do_memory_operations;
 
 #[test]
@@ -26,6 +27,18 @@ fn test_trace_self_memory_operations() {
     let pages = tracer.stop().unwrap();
 
     assert_eq!(pages.len(), 3);
-    assert_eq!(&pages[0].content.as_ref().unwrap()[0..5], [0x90, 0x90, 0x90, 0x90, 0x90]);
-    assert_eq!(&pages[1].content.as_ref().unwrap()[0..5], [0x91, 0x91, 0x91, 0x91, 0x91]);
+
+    let check = |page_idx: usize, byte_val: u8| {
+        let content = pages[page_idx].content.as_ref().unwrap();
+        for i in 0..WRITE_SIZE {
+            assert_eq!(
+                content[i], byte_val,
+                "Mismatch at page {page_idx}, offset {i}"
+            );
+        }
+    };
+
+    check(0, 0x90);
+    check(1, 0x91);
+    check(2, 0xA0);
 }
