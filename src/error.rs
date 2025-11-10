@@ -5,6 +5,9 @@ pub enum EmtError {
     #[error("Target PID does not exist: {0}")]
     InvalidPid(i32),
 
+    #[error("Tracer is already running")]
+    AlreadyRunning,
+
     #[error("Thread join failed")]
     ThreadJoinError,
 

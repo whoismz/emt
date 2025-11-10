@@ -35,7 +35,7 @@ impl Tracer {
     /// Starts the tracer thread and BPF runtime.
     pub fn start(&mut self) -> Result<()> {
         if self.running {
-            return Ok(());
+            return Err(EmtError::AlreadyRunning);
         }
 
         // Check if the target PID exists
@@ -158,9 +158,7 @@ mod tests {
         tracer.running = true;
 
         let result = tracer.start();
-        assert!(result.is_ok());
-
-        let _ = tracer.stop();
+        assert!(matches!(result, Err(EmtError::AlreadyRunning)));
     }
 
     #[test]
