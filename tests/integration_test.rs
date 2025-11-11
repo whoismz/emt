@@ -13,10 +13,7 @@ fn test_trace_self_memory_operations() {
     println!("Starting self-trace for PID: {}", self_pid);
 
     let mut tracer = Tracer::new(self_pid);
-    if tracer.start().is_err() {
-        println!("Failed to start self-tracer");
-        return;
-    }
+    tracer.start().expect("Failed to start self-tracer");
 
     do_memory_operations();
 
