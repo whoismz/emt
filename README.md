@@ -54,7 +54,7 @@ emt/
 ## Building
 
 ```bash
-# 0. Install packages required on Ubuntu 24.04.2 LTS
+# 0. Install required packages (example for Ubuntu 24.04.2 LTS)
 sudo apt install rustup libbpf-dev llvm clang pkg-config
 
 # 1. Clone
@@ -73,6 +73,7 @@ sudo cargo test
 use emt::Tracer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // create a tracer for the target process (PID 2077)
     let mut tracer = Tracer::new(2077);
 
     // start tracing
