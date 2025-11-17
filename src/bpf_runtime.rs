@@ -69,7 +69,7 @@ impl BpfRuntime {
             let value = 1u8.to_ne_bytes();
             pid_map
                 .update(&key, &value, libbpf_rs::MapFlags::ANY)
-                .map_err(|e| EmtError::Bpf(e))?;
+                .map_err(EmtError::Bpf)?;
         }
 
         Ok(())
