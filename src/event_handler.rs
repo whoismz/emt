@@ -10,16 +10,14 @@ const PAGE_SIZE: usize = 4096;
 
 /// Handles memory events and keeps track of memory pages for a specific target PID.
 pub struct EventHandler {
-    target_pid: i32,
     event_counter: AtomicUsize,
     known_pages: HashMap<usize, Page>,
 }
 
 impl EventHandler {
     /// Creates a new EventHandler for a specific target PID.
-    pub fn new(target_pid: i32) -> Self {
+    pub fn new() -> Self {
         Self {
-            target_pid,
             event_counter: AtomicUsize::new(1),
             known_pages: HashMap::new(),
         }
@@ -46,16 +44,6 @@ impl EventHandler {
 
     /// Processes a single memory event.
     pub fn process(&mut self, event: Event) -> bool {
-        // Shutdown event
-        if event.pid == -1 {
-            return false;
-        }
-
-        // Ignore unrelated process
-        if event.pid != self.target_pid {
-            return true;
-        }
-
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
 
         if !matches!(event.event_type, EventType::Unmap) {
@@ -84,6 +72,10 @@ impl EventHandler {
                 let page = EventHandler::get_page_from_event(event);
                 self.known_pages.remove(&page.addr);
             }
+
+            EventType::Shutdown => {
+                return false;
+            }
         }
         true
     }
@@ -109,27 +101,16 @@ mod tests {
 
     #[test]
     fn test_event_handler_creation() {
-        let handler = EventHandler::new(1);
-        assert_eq!(handler.target_pid, 1);
+        let handler = EventHandler::new();
         assert_eq!(handler.known_pages.len(), 0);
         assert_eq!(handler.event_counter.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn test_process_wrong_pid() {
-        let mut handler = EventHandler::new(1);
-        let event = create_test_event(EventType::Map, 0x1000, 0x1000, 2);
-
-        let result = handler.process(event);
-        assert!(result);
-        assert_eq!(handler.known_pages.len(), 0);
-    }
-
-    #[test]
     fn test_process_shutdown_event() {
-        let mut handler = EventHandler::new(1);
+        let mut handler = EventHandler::new();
         let event = Event {
-            event_type: EventType::Map,
+            event_type: EventType::Shutdown,
             addr: 0x1000,
             size: 0x1000,
             timestamp: SystemTime::now(),
@@ -144,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_process_map_event() {
-        let mut handler = EventHandler::new(1);
+        let mut handler = EventHandler::new();
         let event = create_test_event(EventType::Map, 0x1000, 0x1000, 1);
 
         let result = handler.process(event);
@@ -155,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_process_mprotect_event() {
-        let mut handler = EventHandler::new(1);
+        let mut handler = EventHandler::new();
         let event = create_test_event(EventType::Mprotect, 0x2000, 0x1000, 1);
 
         let result = handler.process(event);
@@ -166,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_event_counter_increment() {
-        let mut handler = EventHandler::new(1);
+        let mut handler = EventHandler::new();
         let initial_counter = handler.event_counter.load(Ordering::SeqCst);
 
         let event1 = create_test_event(EventType::Map, 0x1000, 0x1000, 1);

@@ -124,7 +124,7 @@ impl Tracer {
         ready_tx: Sender<std::result::Result<(), String>>,
     ) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
-        let mut handler = EventHandler::new(target_pid);
+        let mut handler = EventHandler::new();
         let bpf_path = PathBuf::from(env!("OUT_DIR")).join("memory_tracer.bpf.o");
 
         if let Err(e) = bpf_runtime.start(bpf_path.to_str().unwrap()) {

@@ -7,6 +7,7 @@ pub enum EventType {
     Map,
     Unmap,
     Mprotect,
+    Shutdown,
 }
 
 /// Struct representing a memory event.
@@ -25,7 +26,7 @@ impl Event {
     /// Creates a shutdown event
     pub fn shutdown() -> Self {
         Self {
-            event_type: EventType::Unmap,
+            event_type: EventType::Shutdown,
             addr: 0,
             size: 0,
             timestamp: SystemTime::now(),
