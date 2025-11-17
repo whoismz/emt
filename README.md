@@ -60,10 +60,7 @@ sudo apt install rustup libbpf-dev llvm clang pkg-config
 # 1. Clone
 git clone git@gitlab.eurecom.fr:ma/emt.git && cd emt
 
-# 2. Build
-cargo build
-
-# 3. Test
+# 2. Build and test
 sudo cargo test
 ```
 
