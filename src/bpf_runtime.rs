@@ -132,8 +132,7 @@ impl BpfRuntime {
         use std::mem::size_of;
 
         if data.len() >= size_of::<RawMemoryEvent>() {
-            let raw_event =
-                unsafe { std::ptr::read_unaligned(data.as_ptr() as *const RawMemoryEvent) };
+            let raw_event = unsafe { std::ptr::read(data.as_ptr() as *const RawMemoryEvent) };
 
             if raw_event.pid as i32 == target_pid {
                 let event = Event::from(raw_event);
@@ -200,10 +199,10 @@ impl From<RawMemoryEvent> for Event {
             0 => EventType::Map,
             1 => EventType::Unmap,
             2 => EventType::Mprotect,
-            _ => EventType::Map,
+            _ => EventType::Shutdown,
         };
 
-        let content = if raw.content_size == ONE_PAGE_SIZE as u64 {
+        let content = if raw.content_size > 0 {
             Some(raw.content[..raw.content_size as usize].to_vec())
         } else {
             None

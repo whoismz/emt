@@ -113,10 +113,11 @@ static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type) {
         event->pid = pid;
         event->event_type = event_type;
         event->timestamp = bpf_ktime_get_ns();
+        event->content_size = 0;
 
         if (event_type == EVENT_TYPE_MMAP || event_type == EVENT_TYPE_MPROTECT) {
             long ret = bpf_probe_read_user(event->content, ONE_PAGE_SIZE, (void *)event->addr);
-            event->content_size = (ret == 0) ? ONE_PAGE_SIZE : 0;
+            if (ret == 0) event->content_size = ONE_PAGE_SIZE;
         }
 
         bpf_ringbuf_submit(event, 0);
