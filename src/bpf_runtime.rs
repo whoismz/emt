@@ -203,7 +203,7 @@ impl From<RawMemoryEvent> for Event {
             _ => EventType::Map,
         };
 
-        let content = if raw.content_size > 0_u64 {
+        let content = if raw.content_size == ONE_PAGE_SIZE as u64 {
             Some(raw.content[..raw.content_size as usize].to_vec())
         } else {
             None
