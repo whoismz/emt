@@ -127,16 +127,6 @@ impl Tracer {
         let mut handler = EventHandler::new(target_pid);
         let bpf_path = PathBuf::from(env!("OUT_DIR")).join("memory_tracer.bpf.o");
 
-        // let key = target_pid.to_ne_bytes();
-        // let value = 1u8.to_ne_bytes();
-        // if let Err(_) = http_sk
-        //     .maps
-        //     .tracked_pids
-        //     .update(&key, &value, MapFlags::ANY)
-        // {
-        //     warn!("failed to update maps for pid {}\n", pid);
-        // }
-
         if let Err(e) = bpf_runtime.start(bpf_path.to_str().unwrap()) {
             let _ = ready_tx.send(Err(e.to_string()));
             return Err(e);
