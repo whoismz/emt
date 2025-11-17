@@ -52,7 +52,7 @@ impl Tracer {
         let target_pid = self.target_pid;
 
         // Spawn the tracer thread
-        let (ready_tx, ready_rx) = channel::<bool>();
+        let (ready_tx, ready_rx) = channel::<std::result::Result<(), String>>();
         let thread_handle = thread::spawn(move || {
             let mut pages = Vec::new();
 
@@ -65,17 +65,20 @@ impl Tracer {
 
         self.thread_handle = Some(thread_handle);
         match ready_rx.recv() {
-            Ok(true) => {
+            Ok(Ok(())) => {
                 self.running = true;
                 Ok(())
             }
-            Ok(false) => {
+            Ok(Err(e)) => {
                 if let Some(handle) = self.thread_handle.take() {
                     let _ = handle.join();
                 }
                 self.event_tx = None;
                 self.running = false;
-                Err(EmtError::Other("Failed to start BPF runtime".into()))
+                Err(EmtError::Other(format!(
+                    "Failed to start BPF runtime: {}",
+                    e
+                )))
             }
             Err(_) => {
                 if let Some(handle) = self.thread_handle.take() {
@@ -118,18 +121,27 @@ impl Tracer {
         event_tx: Sender<Event>,
         event_rx: Receiver<Event>,
         pages: &mut Vec<Page>,
-        ready_tx: Sender<bool>,
+        ready_tx: Sender<std::result::Result<(), String>>,
     ) -> Result<()> {
         let mut bpf_runtime = BpfRuntime::new(event_tx.clone(), target_pid)?;
         let mut handler = EventHandler::new(target_pid);
         let bpf_path = PathBuf::from(env!("OUT_DIR")).join("memory_tracer.bpf.o");
 
+        // let key = target_pid.to_ne_bytes();
+        // let value = 1u8.to_ne_bytes();
+        // if let Err(_) = http_sk
+        //     .maps
+        //     .tracked_pids
+        //     .update(&key, &value, MapFlags::ANY)
+        // {
+        //     warn!("failed to update maps for pid {}\n", pid);
+        // }
+
         if let Err(e) = bpf_runtime.start(bpf_path.to_str().unwrap()) {
-            let _ = ready_tx.send(false);
+            let _ = ready_tx.send(Err(e.to_string()));
             return Err(e);
         }
-
-        let _ = ready_tx.send(true);
+        let _ = ready_tx.send(Ok(()));
 
         // main loop for events from BPF
         let mut running = true;

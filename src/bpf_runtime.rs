@@ -59,6 +59,19 @@ impl BpfRuntime {
 
         self.bpf_object = Some(bpf_object);
         self.is_active = true;
+
+        if let Some(ref mut obj) = self.bpf_object {
+            let pid_map = obj
+                .maps_mut()
+                .find(|m| m.name() == "pids")
+                .ok_or_else(|| EmtError::MapError("Failed to find target_pid_map".into()))?;
+            let key = self.target_pid.to_ne_bytes();
+            let value = 1u8.to_ne_bytes();
+            pid_map
+                .update(&key, &value, libbpf_rs::MapFlags::ANY)
+                .map_err(|e| EmtError::Bpf(e))?;
+        }
+
         Ok(())
     }
 

@@ -32,6 +32,14 @@ struct {
     __uint(max_entries, RINGBUF_SIZE);
 } events SEC(".maps");
 
+// Tracked pids
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, sizeof(__u8));
+} pids SEC(".maps");
+
 // Argument storage for mmap
 struct mmap_args_t {
     __u64 addr;
@@ -81,6 +89,12 @@ struct {
 // Helper to get pid_tgid and pid
 static __always_inline __u64 get_key() { return bpf_get_current_pid_tgid(); }
 
+// Helper to check if a pid is traced
+static __always_inline int is_tracked_pids(u32 pid) {
+    __u8 *tracked  = bpf_map_lookup_elem(&pids, &pid);
+    return tracked ? 1 : 0;
+}
+
 // Dump the memory and send to userspace
 static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type) {
     if (len == 0)
@@ -112,11 +126,14 @@ static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type) {
 // Handle mmap entry
 SEC("tracepoint/syscalls/sys_enter_mmap")
 int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
+    __u64 key = get_key();
+    __u32 pid = key >> 32;
+    if (!is_tracked_pids(pid))
+        return 0;
+
     __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC))
         return 0;
-
-    __u64 key = get_key();
 
     struct mmap_args_t args = {.addr = ctx->args[0],
                                .length = ctx->args[1],
@@ -153,11 +170,14 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
 // Handle mprotect entry
 SEC("tracepoint/syscalls/sys_enter_mprotect")
 int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
+    __u64 key = get_key();
+    __u32 pid = key >> 32;
+    if (!is_tracked_pids(pid))
+        return 0;
+
     __u64 prot = ctx->args[2];
     if (!(prot & PROT_EXEC))
         return 0;
-
-    __u64 key = get_key();
 
     struct mprotect_args_t args = {
         .start = ctx->args[0],
@@ -195,37 +215,11 @@ SEC("tracepoint/syscalls/sys_enter_munmap")
 int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
     __u64 addr = ctx->args[0];
     __u64 length = ctx->args[1];
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    submit_event(addr, length, pid, EVENT_TYPE_MUNMAP);
-    return 0;
-}
-
-// Handle execve entry
-SEC("tracepoint/syscalls/sys_enter_execve")
-int trace_enter_execve(struct trace_event_raw_sys_enter *ctx) {
     __u64 key = get_key();
     __u32 pid = key >> 32;
 
-    struct execve_args_t args = {.filename_ptr = ctx->args[0],
-                                 .argv_ptr = ctx->args[1],
-                                 .envp_ptr = ctx->args[2]};
-
-    bpf_map_update_elem(&execve_args, &key, &args, BPF_ANY);
-
-    submit_event(0, 0, pid, EVENT_TYPE_EXECVE);
-    return 0;
-}
-
-// Handle execve exit (if execve failed, clean up)
-SEC("tracepoint/syscalls/sys_exit_execve")
-int trace_exit_execve(struct trace_event_raw_sys_exit *ctx) {
-    __u64 key = get_key();
-
-    if (ctx->ret < 0) {
-        bpf_map_delete_elem(&execve_args, &key);
-    }
-
+    submit_event(addr, length, pid, EVENT_TYPE_MUNMAP);
     return 0;
 }
 
