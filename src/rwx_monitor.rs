@@ -104,11 +104,10 @@ impl RwxMonitor {
 
         // Verify target process exists
         let pid = Pid::from_raw(self.target_pid);
-        if let Err(err) = kill(pid, None) {
-            if err != Errno::EPERM {
+        if let Err(err) = kill(pid, None)
+            && err != Errno::EPERM {
                 return Err(EmtError::InvalidPid(self.target_pid));
             }
-        }
 
         // Create event channel
         let (event_tx, event_rx) = mpsc::channel();
@@ -286,11 +285,10 @@ impl RwxMonitor {
             }
 
             // Poll BPF for events (informational)
-            if let Some(ref mut runtime) = bpf_runtime {
-                if let Err(e) = runtime.poll(config.poll_timeout) {
+            if let Some(ref mut runtime) = bpf_runtime
+                && let Err(e) = runtime.poll(config.poll_timeout) {
                     debug!("BPF poll error: {:?}", e);
                 }
-            }
 
             // Small sleep to avoid busy-waiting
             thread::sleep(Duration::from_millis(10));
@@ -314,13 +312,12 @@ impl RwxMonitor {
             }
         }
 
-        if let Some(mut runtime) = bpf_runtime.take() {
-            if let Err(e) = runtime.stop() {
+        if let Some(mut runtime) = bpf_runtime.take()
+            && let Err(e) = runtime.stop() {
                 let err_msg = format!("Error stopping BPF runtime: {}", e);
                 warn!("{}", err_msg);
                 result.errors.push(err_msg);
             }
-        }
 
         result
     }

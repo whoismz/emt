@@ -34,7 +34,7 @@ pub struct SyscallResult {
 impl SyscallResult {
     /// Creates a new syscall result
     pub fn new(retval: i64) -> Self {
-        let success = retval >= 0 || (retval < -4095);
+        let success = !(-4095..0).contains(&retval);
         Self { retval, success }
     }
 

@@ -25,15 +25,15 @@ impl EventHandler {
 
     /// Creates a page from a memory event.
     fn get_page_from_event(event: &Event) -> Page {
-        let page = Page {
+        
+        Page {
             addr: event.addr,
             size: PAGE_SIZE,
             timestamp: event.timestamp_str.clone(),
             source_file: None,
             content: event.content.clone(),
             was_rwx: event.event_type.is_rwx(),
-        };
-        page
+        }
     }
 
     /// Returns a sorted list of all currently known pages, sorted by timestamp (ascending).

@@ -650,11 +650,7 @@ impl PtraceController {
         } else {
             // Also check RIP - the fault might be triggered by executing at RIP
             let regs = Self::get_regs(pid)?;
-            if let Some(region) = tracker.find_waiting_region(regs.rip) {
-                Some((region.addr, region.len, region.exec_restore_prot()))
-            } else {
-                None
-            }
+            tracker.find_waiting_region(regs.rip).map(|region| (region.addr, region.len, region.exec_restore_prot()))
         };
 
         let (region_addr, region_len, restore_prot) = match region_info {
