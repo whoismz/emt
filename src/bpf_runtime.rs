@@ -189,6 +189,7 @@ struct RawMemoryEvent {
     event_type: u32,
     timestamp: u64,
     content_size: u64,
+    prot: u64,
     content: [u8; ONE_PAGE_SIZE],
 }
 
@@ -196,9 +197,11 @@ struct RawMemoryEvent {
 impl From<RawMemoryEvent> for Event {
     fn from(raw: RawMemoryEvent) -> Self {
         let event_type = match raw.event_type {
-            0 => EventType::Map,
-            1 => EventType::Unmap,
-            2 => EventType::Mprotect,
+            0 => EventType::Map,         // EVENT_TYPE_MMAP
+            1 => EventType::Unmap,       // EVENT_TYPE_MUNMAP
+            2 => EventType::Mprotect,    // EVENT_TYPE_MPROTECT
+            4 => EventType::RwxMap,      // EVENT_TYPE_RWX_MMAP
+            5 => EventType::RwxMprotect, // EVENT_TYPE_RWX_MPROTECT
             _ => EventType::Shutdown,
         };
 
@@ -217,6 +220,9 @@ impl From<RawMemoryEvent> for Event {
             .format("%Y-%m-%d %H:%M:%S%.3f")
             .to_string();
 
+        // Include prot field for RWX events
+        let prot = if raw.prot != 0 { Some(raw.prot) } else { None };
+
         Event {
             event_type,
             addr: raw.addr as usize,
@@ -225,6 +231,7 @@ impl From<RawMemoryEvent> for Event {
             timestamp_str,
             pid: raw.pid as i32,
             content,
+            prot,
         }
     }
 }
@@ -350,6 +357,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 4,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 
@@ -375,6 +383,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 4,
+            prot: 0,
             content,
         };
 
@@ -397,6 +406,7 @@ mod tests {
             event_type: 1,
             timestamp: 1000000000,
             content_size: 0,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 
@@ -418,6 +428,7 @@ mod tests {
             event_type: 2,
             timestamp: 1000000000,
             content_size: 0,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 
@@ -438,6 +449,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 
@@ -461,6 +473,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 4,
+            prot: 0,
             content,
         };
 
@@ -512,6 +525,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 
@@ -542,6 +556,7 @@ mod tests {
             event_type: 0,
             timestamp: 1000000000,
             content_size: 0,
+            prot: 0,
             content: [0; ONE_PAGE_SIZE],
         };
 

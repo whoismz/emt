@@ -35,6 +35,9 @@ pub enum EmtError {
     #[error("Ring buffer not initialized")]
     RingBufNotInitialized,
 
+    #[error("Ptrace error: {0}")]
+    PtraceError(String),
+
     #[error("Other: {0}")]
     Other(String),
 }

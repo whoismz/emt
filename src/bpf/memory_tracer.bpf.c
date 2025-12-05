@@ -10,10 +10,13 @@
 #define ONE_PAGE_SIZE 4096
 #define RINGBUF_SIZE (16 * 1024 * 1024) // 16 MiB
 
+// Event types
 #define EVENT_TYPE_MMAP 0
 #define EVENT_TYPE_MUNMAP 1
 #define EVENT_TYPE_MPROTECT 2
 #define EVENT_TYPE_EXECVE 3
+#define EVENT_TYPE_RWX_MMAP 4      // RWX mmap detected
+#define EVENT_TYPE_RWX_MPROTECT 5  // RWX mprotect detected
 
 // Event structure sent via ring buffer
 struct memory_event {
@@ -23,6 +26,7 @@ struct memory_event {
     __u32 event_type;
     __u64 timestamp;
     __u64 content_size;
+    __u64 prot;          // Protection flags for RWX events
     __u8 content[ONE_PAGE_SIZE];
 };
 
@@ -48,6 +52,7 @@ struct mmap_args_t {
     __u64 flags;
     __u64 fd;
     __u64 offset;
+    __u8 is_rwx;  // Flag indicating RWX request
 };
 
 // Argument storage for mprotect
@@ -55,6 +60,7 @@ struct mprotect_args_t {
     __u64 start;
     __u64 length;
     __u64 prot;
+    __u8 is_rwx;  // Flag indicating RWX request
 };
 
 // Argument storage for execve
@@ -86,17 +92,22 @@ struct {
     __type(value, struct execve_args_t);
 } execve_args SEC(".maps");
 
-// Helper to get pid_tgid and pid
+// Helper to get pid_tgid
 static __always_inline __u64 get_key() { return bpf_get_current_pid_tgid(); }
 
 // Helper to check if a pid is traced
 static __always_inline int is_tracked_pids(u32 pid) {
-    __u8 *tracked  = bpf_map_lookup_elem(&pids, &pid);
+    __u8 *tracked = bpf_map_lookup_elem(&pids, &pid);
     return tracked ? 1 : 0;
 }
 
+// Check if protection flags include both WRITE and EXEC (RWX)
+static __always_inline int is_rwx(__u64 prot) {
+    return ((prot & PROT_WRITE) != 0) && ((prot & PROT_EXEC) != 0);
+}
+
 // Dump the memory and send to userspace
-static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type) {
+static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type, __u64 prot) {
     if (len == 0)
         return;
 
@@ -114,8 +125,13 @@ static void submit_event(__u64 addr, __u64 len, __u32 pid, __u32 event_type) {
         event->event_type = event_type;
         event->timestamp = bpf_ktime_get_ns();
         event->content_size = 0;
+        event->prot = prot;
 
-        if (event_type == EVENT_TYPE_MMAP || event_type == EVENT_TYPE_MPROTECT) {
+        // Read memory content for map and mprotect events
+        if (event_type == EVENT_TYPE_MMAP
+            || event_type == EVENT_TYPE_MPROTECT
+            || event_type == EVENT_TYPE_RWX_MMAP
+            || event_type == EVENT_TYPE_RWX_MPROTECT) {
             long ret = bpf_probe_read_user(event->content, ONE_PAGE_SIZE, (void *)event->addr);
             if (ret == 0) event->content_size = ONE_PAGE_SIZE;
         }
@@ -133,15 +149,20 @@ int trace_enter_mmap(struct trace_event_raw_sys_enter *ctx) {
         return 0;
 
     __u64 prot = ctx->args[2];
+
+    // Check if this has EXEC permission
     if (!(prot & PROT_EXEC))
         return 0;
 
-    struct mmap_args_t args = {.addr = ctx->args[0],
-                               .length = ctx->args[1],
-                               .prot = ctx->args[2],
-                               .flags = ctx->args[3],
-                               .fd = ctx->args[4],
-                               .offset = ctx->args[5]};
+    struct mmap_args_t args = {
+        .addr   = ctx->args[0],
+        .length = ctx->args[1],
+        .prot   = ctx->args[2],
+        .flags  = ctx->args[3],
+        .fd     = ctx->args[4],
+        .offset = ctx->args[5],
+        .is_rwx = is_rwx(prot) ? 1 : 0,
+    };
 
     bpf_map_update_elem(&mmap_args, &key, &args, BPF_ANY);
     return 0;
@@ -162,7 +183,10 @@ int trace_exit_mmap(struct trace_event_raw_sys_exit *ctx) {
     if (!args)
         return 0;
 
-    submit_event(ctx->ret, args->length, pid, EVENT_TYPE_MMAP);
+    // Determine event type based on whether it was RWX
+    __u32 event_type = args->is_rwx ? EVENT_TYPE_RWX_MMAP : EVENT_TYPE_MMAP;
+
+    submit_event(ctx->ret, args->length, pid, event_type, args->prot);
 
     bpf_map_delete_elem(&mmap_args, &key);
     return 0;
@@ -177,13 +201,16 @@ int trace_enter_mprotect(struct trace_event_raw_sys_enter *ctx) {
         return 0;
 
     __u64 prot = ctx->args[2];
+
+    // Only track if adding EXEC permission
     if (!(prot & PROT_EXEC))
         return 0;
 
     struct mprotect_args_t args = {
-        .start = ctx->args[0],
+        .start  = ctx->args[0],
         .length = ctx->args[1],
-        .prot = ctx->args[2],
+        .prot   = ctx->args[2],
+        .is_rwx = is_rwx(prot) ? 1 : 0,
     };
 
     bpf_map_update_elem(&mprotect_args, &key, &args, BPF_ANY);
@@ -205,7 +232,9 @@ int trace_exit_mprotect(struct trace_event_raw_sys_exit *ctx) {
     if (!args)
         return 0;
 
-    submit_event(args->start, args->length, pid, EVENT_TYPE_MPROTECT);
+    __u32 event_type = args->is_rwx ? EVENT_TYPE_RWX_MPROTECT : EVENT_TYPE_MPROTECT;
+
+    submit_event(args->start, args->length, pid, event_type, args->prot);
 
     bpf_map_delete_elem(&mprotect_args, &key);
     return 0;
@@ -220,7 +249,7 @@ int trace_munmap(struct trace_event_raw_sys_enter *ctx) {
     __u64 key = get_key();
     __u32 pid = key >> 32;
 
-    submit_event(addr, length, pid, EVENT_TYPE_MUNMAP);
+    submit_event(addr, length, pid, EVENT_TYPE_MUNMAP, 0);
     return 0;
 }
 

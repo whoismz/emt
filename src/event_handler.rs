@@ -23,15 +23,17 @@ impl EventHandler {
         }
     }
 
-    /// Divides a memory event into one or more memory pages.
-    fn get_page_from_event(event: Event) -> Page {
-        Page {
+    /// Creates a page from a memory event.
+    fn get_page_from_event(event: &Event) -> Page {
+        let page = Page {
             addr: event.addr,
             size: PAGE_SIZE,
-            timestamp: event.timestamp_str,
+            timestamp: event.timestamp_str.clone(),
             source_file: None,
-            content: event.content,
-        }
+            content: event.content.clone(),
+            was_rwx: event.event_type.is_rwx(),
+        };
+        page
     }
 
     /// Returns a sorted list of all currently known pages, sorted by timestamp (ascending).
@@ -42,14 +44,29 @@ impl EventHandler {
         pages
     }
 
+    /// Returns pages that were originally RWX requests
+    #[allow(dead_code)]
+    pub fn get_rwx_pages(&self) -> Vec<Page> {
+        self.known_pages
+            .values()
+            .filter(|p| p.was_rwx)
+            .cloned()
+            .collect()
+    }
+
     /// Processes a single memory event.
     pub fn process(&mut self, event: Event) -> bool {
         let event_id = self.event_counter.fetch_add(1, Ordering::SeqCst);
 
         if !matches!(event.event_type, EventType::Unmap) {
             debug!(
-                "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}",
-                event_id, event.event_type, event.addr, event.size, event.timestamp_str,
+                "{}: type: {:?}, addr: {:x}, size: {}, timestamp: {:?}, rwx: {}",
+                event_id,
+                event.event_type,
+                event.addr,
+                event.size,
+                event.timestamp_str,
+                event.event_type.is_rwx(),
             );
         }
 
@@ -59,17 +76,27 @@ impl EventHandler {
 
         match event.event_type {
             EventType::Map => {
-                let page = EventHandler::get_page_from_event(event);
+                let page = EventHandler::get_page_from_event(&event);
+                self.known_pages.insert(page.addr, page);
+            }
+
+            EventType::RwxMap => {
+                let page = EventHandler::get_page_from_event(&event);
                 self.known_pages.insert(page.addr, page);
             }
 
             EventType::Mprotect => {
-                let page = EventHandler::get_page_from_event(event);
+                let page = EventHandler::get_page_from_event(&event);
+                self.known_pages.insert(page.addr, page);
+            }
+
+            EventType::RwxMprotect => {
+                let page = EventHandler::get_page_from_event(&event);
                 self.known_pages.insert(page.addr, page);
             }
 
             EventType::Unmap => {
-                let page = EventHandler::get_page_from_event(event);
+                let page = EventHandler::get_page_from_event(&event);
                 self.known_pages.remove(&page.addr);
             }
 
@@ -78,6 +105,12 @@ impl EventHandler {
             }
         }
         true
+    }
+}
+
+impl Default for EventHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -96,6 +129,7 @@ mod tests {
             timestamp_str: String::new(),
             pid,
             content: None,
+            prot: None,
         }
     }
 
@@ -117,6 +151,7 @@ mod tests {
             timestamp_str: String::new(),
             pid: -1,
             content: None,
+            prot: None,
         };
 
         let result = handler.process(event);
