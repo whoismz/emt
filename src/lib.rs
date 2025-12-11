@@ -6,7 +6,7 @@ pub use tracer::Tracer;
 
 // RWX monitoring
 pub use ptrace::controller::MemoryExecEvent;
-pub use ptrace::{PtraceController, RegionState, RemoteSyscall, RwxRegion, TrackerStats};
+pub use ptrace::{PtraceController, RegionState, RemoteSyscall, RwxRegion};
 pub use rwx_monitor::{MonitorResult, RwxMonitor, RwxMonitorBuilder};
 
 // Internal modules

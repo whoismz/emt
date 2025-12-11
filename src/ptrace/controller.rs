@@ -22,7 +22,7 @@ use nix::unistd::Pid;
 
 use super::remote_syscall::{RegisterSnapshot, RemoteSyscall};
 use super::rwx_region::{
-    PROT_EXEC, PROT_READ, PROT_WRITE, RegionSource, RwxRegion, RwxRegionTracker,
+    FaultType, PROT_EXEC, PROT_READ, PROT_WRITE, RegionSource, RwxRegion, RwxRegionTracker,
 };
 use crate::error::{EmtError, Result};
 
@@ -49,7 +49,7 @@ pub struct MemoryExecEvent {
     pub timestamp: SystemTime,
     /// The instruction pointer that triggered the fault
     pub fault_addr: u64,
-    /// Capture sequence number for this region (1 = first capture, 2 = second after X->W->X cycle, etc.)
+    /// Capture sequence number for this region
     pub capture_sequence: u32,
 }
 
@@ -73,6 +73,16 @@ impl MemoryExecEvent {
             capture_sequence,
         }
     }
+}
+
+/// Result of handling a SIGSEGV signal
+enum SigsegvResult {
+    /// We handled the fault and captured memory (W→X transition)
+    ExecutionCaptured(MemoryExecEvent),
+    /// We handled the fault but no capture needed (X→W transition)
+    WriteHandled,
+    /// Not our fault - signal should be delivered to the process
+    NotOurs,
 }
 
 /// State during syscall interception (between enter and exit)
@@ -293,17 +303,25 @@ impl PtraceController {
 
                 WaitStatus::Stopped(_, Signal::SIGSEGV) => {
                     // Check if this is a SEGV_ACCERR from our modified region
-                    if let Some(event) = Self::handle_sigsegv(pid, &remote, &mut tracker)? {
-                        if let Some(ref tx) = event_tx {
-                            let _ = tx.send(event.clone());
+                    match Self::handle_sigsegv(pid, &remote, &mut tracker)? {
+                        SigsegvResult::ExecutionCaptured(event) => {
+                            // W→X: Execution attempt captured
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(event.clone());
+                            }
+                            events.push(event);
+                            // Resume without delivering the signal
+                            Self::ptrace_syscall(pid, None)?;
                         }
-                        events.push(event);
-
-                        // Resume without delivering the signal (we handled it)
-                        Self::ptrace_syscall(pid, None)?;
-                    } else {
-                        // Not our fault, deliver the signal
-                        Self::ptrace_syscall(pid, Some(Signal::SIGSEGV))?;
+                        SigsegvResult::WriteHandled => {
+                            // X→W: Write attempt handled, no capture
+                            // Resume without delivering the signal
+                            Self::ptrace_syscall(pid, None)?;
+                        }
+                        SigsegvResult::NotOurs => {
+                            // Not our fault, deliver the signal to the process
+                            Self::ptrace_syscall(pid, Some(Signal::SIGSEGV))?;
+                        }
                     }
                 }
 
@@ -501,6 +519,7 @@ impl PtraceController {
 
             // mprotect(addr, len, prot)
             syscall_nr::MPROTECT => {
+                // mprotect(addr, len, prot)
                 // rdi=addr, rsi=len, rdx=prot
                 let addr = regs.rdi;
                 let len = regs.rsi;
@@ -509,111 +528,57 @@ impl PtraceController {
                 let has_write = (prot & PROT_WRITE) != 0;
                 let has_exec = (prot & PROT_EXEC) != 0;
 
-                // Case 1: Check if this is an existing executable region transitioning back to writable
-                if has_write {
-                    if let Some(region) = tracker.find_executable_region_mut(addr) {
+                // For true W-X cycle: we control permissions via SIGSEGV, not mprotect
+                // But we still need to intercept new RWX requests
+                if has_write && has_exec {
+                    // Check if we already track this region
+                    if tracker.find_region(addr).is_some() {
                         log::debug!(
-                            "Detected X->W transition: addr=0x{:x}, len=0x{:x}, prot=0x{:x} (capture #{})",
+                            "mprotect on tracked region: addr=0x{:x}, prot=0x{:x} - ignoring (we control perms)",
+                            addr,
+                            prot
+                        );
+                        // Let it through but don't modify - we control permissions via SIGSEGV
+                        // Actually, we should block the exec bit
+                        let mut new_regs = regs;
+                        new_regs.rdx = prot & !PROT_EXEC;
+                        Self::set_regs(pid, &new_regs)?;
+
+                        pending.insert(
+                            pid,
+                            PendingSyscall {
+                                nr: syscall_nr::MPROTECT,
+                                len,
+                                orig_prot: prot,
+                                modified: true,
+                            },
+                        );
+                    } else {
+                        // New RWX region
+                        log::debug!(
+                            "Intercepted mprotect with RWX: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
                             addr,
                             len,
-                            prot,
-                            region.exec_capture_count
+                            prot
                         );
 
-                        // Transition region back to writable state
-                        region.mark_writable_again(prot);
+                        // Modify prot to remove EXEC - start in Writable state
+                        let mut new_regs = regs;
+                        new_regs.rdx = prot & !PROT_EXEC;
+                        Self::set_regs(pid, &new_regs)?;
 
-                        // If also requesting EXEC (RWX), strip it
-                        if has_exec {
-                            let mut new_regs = regs;
-                            new_regs.rdx = prot & !PROT_EXEC;
-                            Self::set_regs(pid, &new_regs)?;
-
-                            pending.insert(
-                                pid,
-                                PendingSyscall {
-                                    nr: syscall_nr::MPROTECT,
-                                    len,
-                                    orig_prot: prot,
-                                    modified: true,
-                                },
-                            );
-                        } else {
-                            // Just RW, allow it but track for future X transition
-                            pending.insert(
-                                pid,
-                                PendingSyscall {
-                                    nr: syscall_nr::MPROTECT,
-                                    len,
-                                    orig_prot: prot,
-                                    modified: false,
-                                },
-                            );
-                        }
-
-                        // Don't add a new region, we're reusing the existing one
-                        return Ok(());
-                    }
-                }
-
-                // Case 2: New RWX region or region not yet tracked
-                if has_write && has_exec {
-                    log::debug!(
-                        "Intercepted mprotect with RWX: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
-                        addr,
-                        len,
-                        prot
-                    );
-
-                    // Modify prot to remove EXEC
-                    let mut new_regs = regs;
-                    new_regs.rdx = prot & !PROT_EXEC;
-                    Self::set_regs(pid, &new_regs)?;
-
-                    // Check if we already have a region at this address (in WritableAgain state)
-                    // If so, don't add a duplicate
-                    if tracker.find_region(addr).is_none() {
                         let region = RwxRegion::from_mprotect(addr, len, prot);
                         tracker.add(region);
-                    }
 
-                    pending.insert(
-                        pid,
-                        PendingSyscall {
-                            nr: syscall_nr::MPROTECT,
-                            len,
-                            orig_prot: prot,
-                            modified: true,
-                        },
-                    );
-                }
-
-                // Case 3: Adding only EXEC to a writable region (W->X transition)
-                if has_exec && !has_write {
-                    if let Some(region) = tracker.find_region_mut(addr) {
-                        if region.is_writable_again() {
-                            log::debug!(
-                                "Detected W->X transition: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
-                                addr,
+                        pending.insert(
+                            pid,
+                            PendingSyscall {
+                                nr: syscall_nr::MPROTECT,
                                 len,
-                                prot
-                            );
-
-                            // Strip EXEC, keep it in writable state waiting for exec attempt
-                            let mut new_regs = regs;
-                            new_regs.rdx = prot & !PROT_EXEC;
-                            Self::set_regs(pid, &new_regs)?;
-
-                            pending.insert(
-                                pid,
-                                PendingSyscall {
-                                    nr: syscall_nr::MPROTECT,
-                                    len,
-                                    orig_prot: prot,
-                                    modified: true,
-                                },
-                            );
-                        }
+                                orig_prot: prot,
+                                modified: true,
+                            },
+                        );
                     }
                 }
             }
@@ -685,12 +650,15 @@ impl PtraceController {
         Ok(())
     }
 
-    /// Handles SIGSEGV - checks if it's from our modified region and handles it
+    /// Handles SIGSEGV - implements the true W-X cycle.
+    ///
+    /// - If region is Writable (RW): this is an execution attempt → capture memory, switch to RX
+    /// - If region is Executable (RX): this is a write attempt → switch to RW (no capture)
     fn handle_sigsegv(
         pid: pid_t,
         remote: &RemoteSyscall,
         tracker: &mut RwxRegionTracker,
-    ) -> Result<Option<MemoryExecEvent>> {
+    ) -> Result<SigsegvResult> {
         let siginfo = Self::get_siginfo(pid)?;
 
         // Check if this is SEGV_ACCERR (permission denied, not unmapped page)
@@ -700,93 +668,124 @@ impl PtraceController {
                 "SIGSEGV with si_code {} (not SEGV_ACCERR), passing through",
                 si_code
             );
-            return Ok(None);
+            return Ok(SigsegvResult::NotOurs);
         }
 
-        // Get the faulting address
+        // Get the faulting address and current RIP
         let fault_addr = unsafe { siginfo.si_addr() as u64 };
-        log::debug!("SEGV_ACCERR at fault_addr=0x{:x}", fault_addr);
+        let current_regs = Self::get_regs(pid)?;
+        let rip = current_regs.rip;
 
-        // Check if this address is in one of our tracked regions
-        let region_info = if let Some(region) = tracker.find_waiting_region(fault_addr) {
-            Some((
-                region.addr,
-                region.len,
-                region.exec_restore_prot(),
-                region.exec_capture_count + 1,
-            ))
-        } else {
-            // Also check RIP - the fault might be triggered by executing at RIP
-            let regs = Self::get_regs(pid)?;
-            tracker.find_waiting_region(regs.rip).map(|region| {
-                (
-                    region.addr,
-                    region.len,
-                    region.exec_restore_prot(),
-                    region.exec_capture_count + 1,
-                )
-            })
-        };
+        log::debug!(
+            "SEGV_ACCERR: fault_addr=0x{:x}, RIP=0x{:x}",
+            fault_addr,
+            rip
+        );
 
-        let (region_addr, region_len, restore_prot, capture_seq) = match region_info {
-            Some(info) => info,
+        // Find the region - check both fault_addr and RIP
+        // We need to find the address first to avoid borrow issues
+        let region_addr_found = tracker
+            .find_region(fault_addr)
+            .map(|r| r.addr)
+            .or_else(|| tracker.find_region(rip).map(|r| r.addr));
+
+        let region_start_addr = match region_addr_found {
+            Some(addr) => addr,
             None => {
                 log::debug!(
                     "Fault address 0x{:x} not in tracked regions, passing through",
                     fault_addr
                 );
-                return Ok(None);
+                return Ok(SigsegvResult::NotOurs);
             }
         };
 
-        log::info!(
-            "Execution attempt detected at 0x{:x} in tracked region 0x{:x}-0x{:x} (capture #{})",
-            fault_addr,
-            region_addr,
-            region_addr + region_len,
-            capture_seq
-        );
+        // Now get mutable reference using the found address
+        let region = tracker.find_region_mut(region_start_addr).unwrap();
 
-        // Get register snapshot
-        let regs = remote.get_registers()?;
-        let reg_snapshot = RegisterSnapshot::from(regs);
+        let region_addr = region.addr;
+        let region_len = region.len;
+        let fault_type = region.determine_fault_type();
 
-        // Dump memory content using process_vm_readv
-        let bytes = remote.read_memory(region_addr, region_len as usize)?;
+        match fault_type {
+            FaultType::ExecutionAttempt => {
+                // Region is Writable (RW), process tried to execute
+                // → Capture memory, switch to Executable (RX)
+                let capture_seq = region.exec_capture_count + 1;
 
-        // Create the event
-        let event = MemoryExecEvent::new(
-            region_addr,
-            region_len,
-            bytes,
-            reg_snapshot,
-            fault_addr,
-            capture_seq,
-        );
+                log::info!(
+                    "W→X: Execution attempt at 0x{:x} in region 0x{:x}-0x{:x} (capture #{})",
+                    fault_addr,
+                    region_addr,
+                    region_addr + region_len,
+                    capture_seq
+                );
 
-        // Inject mprotect to restore execute permission (RX)
-        let result = remote.inject_mprotect(region_addr, region_len, restore_prot)?;
-        if result.success {
-            log::debug!(
-                "Restored execute permission on region 0x{:x}-0x{:x}",
-                region_addr,
-                region_addr + region_len
-            );
+                // Get register snapshot
+                let regs = remote.get_registers()?;
+                let reg_snapshot = RegisterSnapshot::from(regs);
 
-            // Mark the region as handled
-            if let Some(region) = tracker.find_waiting_region_mut(fault_addr) {
-                region.mark_execution_handled();
-            } else if let Some(region) = tracker.find_waiting_region_mut(regs.rip) {
-                region.mark_execution_handled();
+                // Dump memory content
+                let bytes = remote.read_memory(region_addr, region_len as usize)?;
+
+                // Transition to Executable state and get new protection
+                let new_prot = region.transition_to_executable();
+
+                // Create the event
+                let event = MemoryExecEvent::new(
+                    region_addr,
+                    region_len,
+                    bytes,
+                    reg_snapshot,
+                    fault_addr,
+                    capture_seq,
+                );
+
+                // Inject mprotect to switch to RX (no write)
+                let result = remote.inject_mprotect(region_addr, region_len, new_prot)?;
+                if result.success {
+                    log::debug!(
+                        "Switched region 0x{:x}-0x{:x} to RX (executable, not writable)",
+                        region_addr,
+                        region_addr + region_len
+                    );
+                } else {
+                    log::error!("Failed to switch to RX: retval={}", result.retval);
+                }
+
+                Ok(SigsegvResult::ExecutionCaptured(event))
             }
-        } else {
-            log::error!(
-                "Failed to restore execute permission: retval={}",
-                result.retval
-            );
-        }
 
-        Ok(Some(event))
+            FaultType::WriteAttempt => {
+                // Region is Executable (RX), process tried to write
+                // → Switch to Writable (RW), no memory capture
+                log::info!(
+                    "X→W: Write attempt at 0x{:x} in region 0x{:x}-0x{:x} (write fault #{})",
+                    fault_addr,
+                    region_addr,
+                    region_addr + region_len,
+                    region.write_fault_count + 1
+                );
+
+                // Transition to Writable state and get new protection
+                let new_prot = region.transition_to_writable();
+
+                // Inject mprotect to switch to RW (no exec)
+                let result = remote.inject_mprotect(region_addr, region_len, new_prot)?;
+                if result.success {
+                    log::debug!(
+                        "Switched region 0x{:x}-0x{:x} to RW (writable, not executable)",
+                        region_addr,
+                        region_addr + region_len
+                    );
+                } else {
+                    log::error!("Failed to switch to RW: retval={}", result.retval);
+                }
+
+                // No event for write attempts - only capture on execution
+                Ok(SigsegvResult::WriteHandled)
+            }
+        }
     }
 }
 

@@ -173,41 +173,31 @@ impl RemoteSyscall {
     }
 
     /// Finds an executable code location to inject syscall instructions.
-    /// This is needed because RIP might be in a non-executable region (e.g., during SIGSEGV).
-    ///
-    /// Strategy:
-    /// 1. Try the return address on the stack (at [RSP]) - usually points to libc/main code
-    /// 2. If that fails, scan common executable regions
     fn find_executable_location(&self, regs: &user_regs_struct) -> Result<u64> {
-        // First, try the return address at [RSP]
-        // This is typically where we came from (e.g., call instruction in libc)
-        let ret_addr = self.peek_text(regs.rsp)?;
+        // Helper to check if an address looks like valid code
+        let is_valid_code_addr = |addr: u64| -> bool {
+            // Must be in user space range
+            addr > 0x10000 && addr < 0x700000000000
+        };
 
-        // Sanity check - return address should be in a reasonable code range
-        // (above stack, below typical kernel space)
-        if ret_addr > 0x10000 && ret_addr < 0x7fffffffffff {
-            log::debug!(
-                "Using return address 0x{:x} from stack for syscall injection",
-                ret_addr
-            );
-            return Ok(ret_addr);
+        // 1: Try RIP itself if it looks like it's in code section
+        // This works for write faults where RIP is in libc/main, not in the faulting region
+        if is_valid_code_addr(regs.rip) {
+            // Verify we can read from this address
+            if self.peek_text(regs.rip).is_ok() {
+                log::debug!("Using RIP 0x{:x} for syscall injection", regs.rip);
+                return Ok(regs.rip);
+            }
         }
 
-        // Fallback: try addresses from saved registers that might be in code
-        // RBP sometimes contains a code pointer, or check other saved locations
-        for offset in [8u64, 16, 24, 32].iter() {
-            if let Ok(addr) = self.peek_text(regs.rsp + offset) {
-                if addr > 0x10000 && addr < 0x7fffffffffff {
-                    // Try to verify it's executable by reading it
-                    if self.peek_text(addr).is_ok() {
-                        log::debug!(
-                            "Using stack offset +{} address 0x{:x} for syscall injection",
-                            offset,
-                            addr
-                        );
-                        return Ok(addr);
-                    }
-                }
+        // 2: Try the return address at RSP
+        if let Ok(ret_addr) = self.peek_text(regs.rsp) {
+            if is_valid_code_addr(ret_addr) && self.peek_text(ret_addr).is_ok() {
+                log::debug!(
+                    "Using return address 0x{:x} from stack for syscall injection",
+                    ret_addr
+                );
+                return Ok(ret_addr);
             }
         }
 
