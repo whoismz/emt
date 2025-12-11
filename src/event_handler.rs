@@ -25,7 +25,6 @@ impl EventHandler {
 
     /// Creates a page from a memory event.
     fn get_page_from_event(event: &Event) -> Page {
-        
         Page {
             addr: event.addr,
             size: PAGE_SIZE,
@@ -42,16 +41,6 @@ impl EventHandler {
         let mut pages: Vec<Page> = self.known_pages.values().cloned().collect();
         pages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.addr.cmp(&b.addr)));
         pages
-    }
-
-    /// Returns pages that were originally RWX requests
-    #[allow(dead_code)]
-    pub fn get_rwx_pages(&self) -> Vec<Page> {
-        self.known_pages
-            .values()
-            .filter(|p| p.was_rwx)
-            .cloned()
-            .collect()
     }
 
     /// Processes a single memory event.

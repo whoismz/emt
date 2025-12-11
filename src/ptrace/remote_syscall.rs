@@ -4,16 +4,17 @@ use std::io;
 use std::mem;
 
 use libc::{
-    PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT, PTRACE_SETREGS, PTRACE_SINGLESTEP, c_void,
-    pid_t, user_regs_struct,
+    PTRACE_CONT, PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT, PTRACE_SETREGS, c_void, pid_t,
+    user_regs_struct,
 };
+use nix::sys::signal::Signal;
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::Pid;
 
 use crate::error::{EmtError, Result};
 
-/// x86_64 syscall instruction bytes (0x0f 0x05)
-const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
+/// x86_64 syscall instruction (0x0f 0x05) followed by int3 (0xcc) for trap after syscall
+const SYSCALL_INT3_INSN: [u8; 3] = [0x0f, 0x05, 0xcc];
 
 /// x86_64 syscall numbers
 pub mod syscall_nr {
@@ -149,11 +150,11 @@ impl RemoteSyscall {
         Ok(())
     }
 
-    /// Executes a single instruction in the traced process.
-    fn single_step(&self) -> Result<WaitStatus> {
+    /// Continues the process with PTRACE_CONT and waits for it to stop.
+    fn ptrace_cont_and_wait(&self) -> Result<WaitStatus> {
         let ret = unsafe {
             libc::ptrace(
-                PTRACE_SINGLESTEP,
+                PTRACE_CONT,
                 self.pid.as_raw(),
                 std::ptr::null_mut::<c_void>(),
                 std::ptr::null_mut::<c_void>(),
@@ -162,7 +163,7 @@ impl RemoteSyscall {
 
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
-                "PTRACE_SINGLESTEP failed: {}",
+                "PTRACE_CONT failed: {}",
                 io::Error::last_os_error()
             )));
         }
@@ -171,7 +172,61 @@ impl RemoteSyscall {
         waitpid(self.pid, None).map_err(|e| EmtError::PtraceError(format!("waitpid failed: {}", e)))
     }
 
+    /// Finds an executable code location to inject syscall instructions.
+    /// This is needed because RIP might be in a non-executable region (e.g., during SIGSEGV).
+    ///
+    /// Strategy:
+    /// 1. Try the return address on the stack (at [RSP]) - usually points to libc/main code
+    /// 2. If that fails, scan common executable regions
+    fn find_executable_location(&self, regs: &user_regs_struct) -> Result<u64> {
+        // First, try the return address at [RSP]
+        // This is typically where we came from (e.g., call instruction in libc)
+        let ret_addr = self.peek_text(regs.rsp)?;
+
+        // Sanity check - return address should be in a reasonable code range
+        // (above stack, below typical kernel space)
+        if ret_addr > 0x10000 && ret_addr < 0x7fffffffffff {
+            log::debug!(
+                "Using return address 0x{:x} from stack for syscall injection",
+                ret_addr
+            );
+            return Ok(ret_addr);
+        }
+
+        // Fallback: try addresses from saved registers that might be in code
+        // RBP sometimes contains a code pointer, or check other saved locations
+        for offset in [8u64, 16, 24, 32].iter() {
+            if let Ok(addr) = self.peek_text(regs.rsp + offset) {
+                if addr > 0x10000 && addr < 0x7fffffffffff {
+                    // Try to verify it's executable by reading it
+                    if self.peek_text(addr).is_ok() {
+                        log::debug!(
+                            "Using stack offset +{} address 0x{:x} for syscall injection",
+                            offset,
+                            addr
+                        );
+                        return Ok(addr);
+                    }
+                }
+            }
+        }
+
+        Err(EmtError::PtraceError(
+            "Could not find executable location for syscall injection".to_string(),
+        ))
+    }
+
     /// Injects and executes a syscall with the given arguments.
+    ///
+    /// This works by:
+    /// 1. Finding an executable code location (return address on stack)
+    /// 2. Saving original instruction at that location
+    /// 3. Writing "syscall; int3" there
+    /// 4. Setting up registers for the syscall with RIP pointing to our injected code
+    /// 5. Using PTRACE_CONT to let the process run
+    /// 6. The syscall executes, then hits int3 which generates SIGTRAP
+    /// 7. Reading the result from rax
+    /// 8. Restoring original state
     pub fn inject_syscall(
         &self,
         syscall_nr: u64, // syscall number
@@ -185,19 +240,22 @@ impl RemoteSyscall {
         // Save original registers
         let orig_regs = self.get_registers()?;
 
-        // Save original instruction at RIP
-        let orig_insn = self.peek_text(orig_regs.rip)?;
+        // Find an executable location to inject our syscall
+        let inject_addr = self.find_executable_location(&orig_regs)?;
 
-        // Write syscall instruction (0x0f 0x05) at RIP
-        // We need to preserve the rest of the word
-        let mut new_insn_word = orig_insn;
-        let insn_bytes = new_insn_word.to_le_bytes();
+        // Save original instruction at the injection location (8 bytes on x86_64)
+        let orig_insn = self.peek_text(inject_addr)?;
+
+        // Write "syscall; int3" (0x0f 0x05 0xcc) at the injection location
+        // This executes the syscall and then traps, allowing us to catch the result
+        let insn_bytes = orig_insn.to_le_bytes();
         let mut new_bytes = insn_bytes;
-        new_bytes[0] = SYSCALL_INSN[0];
-        new_bytes[1] = SYSCALL_INSN[1];
-        new_insn_word = u64::from_le_bytes(new_bytes);
+        new_bytes[0] = SYSCALL_INT3_INSN[0]; // 0x0f
+        new_bytes[1] = SYSCALL_INT3_INSN[1]; // 0x05
+        new_bytes[2] = SYSCALL_INT3_INSN[2]; // 0xcc (int3)
+        let new_insn_word = u64::from_le_bytes(new_bytes);
 
-        self.poke_text(orig_regs.rip, new_insn_word)?;
+        self.poke_text(inject_addr, new_insn_word)?;
 
         // Set up registers for syscall
         let mut syscall_regs = orig_regs;
@@ -209,17 +267,38 @@ impl RemoteSyscall {
         syscall_regs.r8 = arg5;
         syscall_regs.r9 = arg6;
 
+        // Set RIP to our injected code location
+        syscall_regs.rip = inject_addr;
+
         self.set_registers(&syscall_regs)?;
 
-        // Single-step to execute the syscall instruction
-        let status = self.single_step()?;
+        log::debug!(
+            "Executing injected syscall {} at 0x{:x} (orig RIP was 0x{:x})",
+            syscall_nr,
+            inject_addr,
+            orig_regs.rip
+        );
 
-        // Check that we stopped as expected
+        // Continue the process - it will execute syscall then hit int3
+        let status = self.ptrace_cont_and_wait()?;
+
+        // We expect SIGTRAP from the int3 instruction
         match status {
-            WaitStatus::Stopped(_, _) => {}
+            WaitStatus::Stopped(_, Signal::SIGTRAP) => {
+                // This is what we expect - int3 was hit after syscall completed
+                log::debug!("Got SIGTRAP as expected after syscall injection");
+            }
+            WaitStatus::Stopped(_, sig) => {
+                // Got a different signal - restore and report
+                let _ = self.poke_text(inject_addr, orig_insn);
+                let _ = self.set_registers(&orig_regs);
+                return Err(EmtError::PtraceError(format!(
+                    "Unexpected signal {} after syscall injection (expected SIGTRAP)",
+                    sig
+                )));
+            }
             other => {
-                // Restore original state before returning error
-                let _ = self.poke_text(orig_regs.rip, orig_insn);
+                let _ = self.poke_text(inject_addr, orig_insn);
                 let _ = self.set_registers(&orig_regs);
                 return Err(EmtError::PtraceError(format!(
                     "Unexpected wait status after syscall injection: {:?}",
@@ -228,14 +307,21 @@ impl RemoteSyscall {
             }
         }
 
-        // Read the result from rax
+        // Read the result from rax (syscall return value)
         let result_regs = self.get_registers()?;
         let retval = result_regs.rax as i64;
 
-        // Restore original instruction
-        self.poke_text(orig_regs.rip, orig_insn)?;
+        log::debug!(
+            "Syscall {} completed with retval={} (0x{:x})",
+            syscall_nr,
+            retval,
+            retval as u64
+        );
 
-        // Restore original registers
+        // Restore original instruction at injection location
+        self.poke_text(inject_addr, orig_insn)?;
+
+        // Restore original registers (including RIP back to original location)
         self.set_registers(&orig_regs)?;
 
         Ok(SyscallResult::new(retval))

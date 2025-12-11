@@ -10,9 +10,8 @@ use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
 use libc::{
-    PTRACE_CONT, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_GETSIGINFO, PTRACE_O_TRACESYSGOOD,
-    PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SYSCALL, c_int, c_void, pid_t, siginfo_t,
-    user_regs_struct,
+    PTRACE_DETACH, PTRACE_GETREGS, PTRACE_GETSIGINFO, PTRACE_O_TRACESYSGOOD, PTRACE_SETOPTIONS,
+    PTRACE_SETREGS, PTRACE_SYSCALL, c_int, c_void, pid_t, siginfo_t, user_regs_struct,
 };
 
 const SEGV_ACCERR: i32 = 2; // seems not in libc crate
@@ -22,7 +21,9 @@ use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
 
 use super::remote_syscall::{RegisterSnapshot, RemoteSyscall};
-use super::rwx_region::{PROT_EXEC, PROT_WRITE, RegionSource, RwxRegion, RwxRegionTracker};
+use super::rwx_region::{
+    PROT_EXEC, PROT_READ, PROT_WRITE, RegionSource, RwxRegion, RwxRegionTracker,
+};
 use crate::error::{EmtError, Result};
 
 /// x86_64 syscall numbers
@@ -48,6 +49,8 @@ pub struct MemoryExecEvent {
     pub timestamp: SystemTime,
     /// The instruction pointer that triggered the fault
     pub fault_addr: u64,
+    /// Capture sequence number for this region (1 = first capture, 2 = second after X->W->X cycle, etc.)
+    pub capture_sequence: u32,
 }
 
 impl MemoryExecEvent {
@@ -58,6 +61,7 @@ impl MemoryExecEvent {
         bytes: Vec<u8>,
         registers: RegisterSnapshot,
         fault_addr: u64,
+        capture_sequence: u32,
     ) -> Self {
         Self {
             addr,
@@ -66,6 +70,7 @@ impl MemoryExecEvent {
             registers,
             timestamp: SystemTime::now(),
             fault_addr,
+            capture_sequence,
         }
     }
 }
@@ -361,30 +366,6 @@ impl PtraceController {
         Ok(())
     }
 
-    /// Continues the traced process with PTRACE_CONT
-    #[allow(dead_code)]
-    fn ptrace_cont(pid: pid_t, sig: Option<Signal>) -> Result<()> {
-        let sig_num = sig.map(|s| s as c_int).unwrap_or(0);
-
-        let ret = unsafe {
-            libc::ptrace(
-                PTRACE_CONT,
-                pid,
-                std::ptr::null_mut::<c_void>(),
-                sig_num as *mut c_void,
-            )
-        };
-
-        if ret == -1 {
-            return Err(EmtError::PtraceError(format!(
-                "PTRACE_CONT failed: {}",
-                io::Error::last_os_error()
-            )));
-        }
-
-        Ok(())
-    }
-
     /// Detaches from the traced process
     fn ptrace_detach(pid: pid_t) -> Result<()> {
         let ret = unsafe {
@@ -486,14 +467,14 @@ impl PtraceController {
         let syscall_nr = regs.orig_rax;
 
         match syscall_nr {
+            // mmap(addr, length, prot, flags, fd, offset)
             syscall_nr::MMAP => {
-                // mmap(addr, length, prot, flags, fd, offset)
                 // rdi=addr, rsi=len, rdx=prot, r10=flags, r8=fd, r9=offset
                 let len = regs.rsi;
                 let prot = regs.rdx;
 
-                // Check if RWX (PROT_READ | PROT_WRITE | PROT_EXEC)
-                if (prot & PROT_WRITE) != 0 && (prot & PROT_EXEC) != 0 {
+                // Check if it is RWX
+                if (prot & PROT_READ) != 0 && (prot & PROT_WRITE) != 0 && (prot & PROT_EXEC) != 0 {
                     log::debug!(
                         "Intercepted mmap with RWX: len=0x{:x}, prot=0x{:x}",
                         len,
@@ -518,15 +499,65 @@ impl PtraceController {
                 }
             }
 
+            // mprotect(addr, len, prot)
             syscall_nr::MPROTECT => {
-                // mprotect(addr, len, prot)
                 // rdi=addr, rsi=len, rdx=prot
                 let addr = regs.rdi;
                 let len = regs.rsi;
                 let prot = regs.rdx;
 
-                // Check if adding EXEC to a region (RW → RWX or R → RX with W)
-                if (prot & PROT_WRITE) != 0 && (prot & PROT_EXEC) != 0 {
+                let has_write = (prot & PROT_WRITE) != 0;
+                let has_exec = (prot & PROT_EXEC) != 0;
+
+                // Case 1: Check if this is an existing executable region transitioning back to writable
+                if has_write {
+                    if let Some(region) = tracker.find_executable_region_mut(addr) {
+                        log::debug!(
+                            "Detected X->W transition: addr=0x{:x}, len=0x{:x}, prot=0x{:x} (capture #{})",
+                            addr,
+                            len,
+                            prot,
+                            region.exec_capture_count
+                        );
+
+                        // Transition region back to writable state
+                        region.mark_writable_again(prot);
+
+                        // If also requesting EXEC (RWX), strip it
+                        if has_exec {
+                            let mut new_regs = regs;
+                            new_regs.rdx = prot & !PROT_EXEC;
+                            Self::set_regs(pid, &new_regs)?;
+
+                            pending.insert(
+                                pid,
+                                PendingSyscall {
+                                    nr: syscall_nr::MPROTECT,
+                                    len,
+                                    orig_prot: prot,
+                                    modified: true,
+                                },
+                            );
+                        } else {
+                            // Just RW, allow it but track for future X transition
+                            pending.insert(
+                                pid,
+                                PendingSyscall {
+                                    nr: syscall_nr::MPROTECT,
+                                    len,
+                                    orig_prot: prot,
+                                    modified: false,
+                                },
+                            );
+                        }
+
+                        // Don't add a new region, we're reusing the existing one
+                        return Ok(());
+                    }
+                }
+
+                // Case 2: New RWX region or region not yet tracked
+                if has_write && has_exec {
                     log::debug!(
                         "Intercepted mprotect with RWX: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
                         addr,
@@ -539,9 +570,12 @@ impl PtraceController {
                     new_regs.rdx = prot & !PROT_EXEC;
                     Self::set_regs(pid, &new_regs)?;
 
-                    // For mprotect, we already know the address
-                    let region = RwxRegion::from_mprotect(addr, len, prot);
-                    tracker.add(region);
+                    // Check if we already have a region at this address (in WritableAgain state)
+                    // If so, don't add a duplicate
+                    if tracker.find_region(addr).is_none() {
+                        let region = RwxRegion::from_mprotect(addr, len, prot);
+                        tracker.add(region);
+                    }
 
                     pending.insert(
                         pid,
@@ -553,10 +587,39 @@ impl PtraceController {
                         },
                     );
                 }
+
+                // Case 3: Adding only EXEC to a writable region (W->X transition)
+                if has_exec && !has_write {
+                    if let Some(region) = tracker.find_region_mut(addr) {
+                        if region.is_writable_again() {
+                            log::debug!(
+                                "Detected W->X transition: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
+                                addr,
+                                len,
+                                prot
+                            );
+
+                            // Strip EXEC, keep it in writable state waiting for exec attempt
+                            let mut new_regs = regs;
+                            new_regs.rdx = prot & !PROT_EXEC;
+                            Self::set_regs(pid, &new_regs)?;
+
+                            pending.insert(
+                                pid,
+                                PendingSyscall {
+                                    nr: syscall_nr::MPROTECT,
+                                    len,
+                                    orig_prot: prot,
+                                    modified: true,
+                                },
+                            );
+                        }
+                    }
+                }
             }
 
+            // munmap(addr, len)
             syscall_nr::MUNMAP => {
-                // munmap(addr, len)
                 let addr = regs.rdi;
                 let len = regs.rsi;
 
@@ -646,26 +709,42 @@ impl PtraceController {
 
         // Check if this address is in one of our tracked regions
         let region_info = if let Some(region) = tracker.find_waiting_region(fault_addr) {
-            Some((region.addr, region.len, region.exec_restore_prot()))
+            Some((
+                region.addr,
+                region.len,
+                region.exec_restore_prot(),
+                region.exec_capture_count + 1,
+            ))
         } else {
             // Also check RIP - the fault might be triggered by executing at RIP
             let regs = Self::get_regs(pid)?;
-            tracker.find_waiting_region(regs.rip).map(|region| (region.addr, region.len, region.exec_restore_prot()))
+            tracker.find_waiting_region(regs.rip).map(|region| {
+                (
+                    region.addr,
+                    region.len,
+                    region.exec_restore_prot(),
+                    region.exec_capture_count + 1,
+                )
+            })
         };
 
-        let (region_addr, region_len, restore_prot) = match region_info {
+        let (region_addr, region_len, restore_prot, capture_seq) = match region_info {
             Some(info) => info,
             None => {
-                log::debug!("Fault address not in tracked regions, passing through");
+                log::debug!(
+                    "Fault address 0x{:x} not in tracked regions, passing through",
+                    fault_addr
+                );
                 return Ok(None);
             }
         };
 
         log::info!(
-            "Execution attempt detected at 0x{:x} in tracked region 0x{:x}-0x{:x}",
+            "Execution attempt detected at 0x{:x} in tracked region 0x{:x}-0x{:x} (capture #{})",
             fault_addr,
             region_addr,
-            region_addr + region_len
+            region_addr + region_len,
+            capture_seq
         );
 
         // Get register snapshot
@@ -676,7 +755,14 @@ impl PtraceController {
         let bytes = remote.read_memory(region_addr, region_len as usize)?;
 
         // Create the event
-        let event = MemoryExecEvent::new(region_addr, region_len, bytes, reg_snapshot, fault_addr);
+        let event = MemoryExecEvent::new(
+            region_addr,
+            region_len,
+            bytes,
+            reg_snapshot,
+            fault_addr,
+            capture_seq,
+        );
 
         // Inject mprotect to restore execute permission (RX)
         let result = remote.inject_mprotect(region_addr, region_len, restore_prot)?;

@@ -1,4 +1,4 @@
-//! A Rust library for tracing executable memory in Linux userspace using eBPF.
+//! A Rust library for monitoring executable memory in Linux userspace using ptrace.
 
 // Public modules
 pub use models::{Event, EventType, Page};
@@ -6,8 +6,8 @@ pub use tracer::Tracer;
 
 // RWX monitoring
 pub use ptrace::controller::MemoryExecEvent;
-pub use ptrace::{PtraceController, RemoteSyscall, RwxRegion};
-pub use rwx_monitor::{MonitorResult, RwxMonitor, RwxMonitorBuilder, RwxMonitorConfig};
+pub use ptrace::{PtraceController, RegionState, RemoteSyscall, RwxRegion, TrackerStats};
+pub use rwx_monitor::{MonitorResult, RwxMonitor, RwxMonitorBuilder};
 
 // Internal modules
 mod bpf_runtime;

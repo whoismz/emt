@@ -37,10 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_millis(500));
 
     // Start monitor
-    let mut monitor = RwxMonitorBuilder::new(child_pid)
-        .enable_bpf(true)
-        .enable_ptrace(true)
-        .build();
+    let mut monitor = RwxMonitorBuilder::new(child_pid).build();
 
     monitor.start()?;
     println!("Monitor attached\n");
@@ -67,7 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let result = monitor.stop()?;
-    events.extend(result.exec_events);
+    // Don't extend from result.exec_events - we already collected via try_recv_event()
+    // to avoid duplicates. result.exec_events contains the same events.
+    let _ = result;
 
     // Cleanup
     let _ = std::fs::remove_file(&src_path);
@@ -98,7 +97,7 @@ int main() {
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (mem == MAP_FAILED) return 1;
 
-    unsigned char code[] = { 0xb8, 0x2a, 0x00, 0x00, 0x00, 0xc3 };
+    unsigned char code[] = { 0xb8, 0x1a, 0x00, 0x00, 0x00, 0xc3 };
     memcpy(mem, code, sizeof(code));
 
     int (*func)(void) = mem;
