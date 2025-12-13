@@ -152,10 +152,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "✅ SUCCESS: Captured {} total events with {} from W-X cycles",
             total_events, cycle_events
         );
-        println!("\nThe W-X cycle is working correctly:");
-        println!("  - Execution attempts trigger memory capture (W→X)");
-        println!("  - Write attempts trigger permission switch (X→W)");
-        println!("  - No mprotect calls needed from the target!");
     }
 
     Ok(())
@@ -192,7 +188,6 @@ void write_return_value(void *mem, int value) {
 }
 
 int main() {
-    printf("W<->X Cycle Test Program (no mprotect calls)\n");
     printf("PID: %d\n", getpid());
     fflush(stdout);
 
