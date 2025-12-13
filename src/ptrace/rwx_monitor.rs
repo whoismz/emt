@@ -9,10 +9,10 @@ use nix::errno::Errno;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 
+use super::PtraceController;
 use crate::error::{EmtError, Result};
-use crate::ptrace::PtraceController;
 
-pub use crate::ptrace::controller::MemoryExecEvent;
+pub use super::controller::MemoryExecEvent;
 
 /// RWX Memory Monitor
 ///

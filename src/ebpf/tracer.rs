@@ -8,9 +8,9 @@ use nix::errno::Errno;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 
-use crate::bpf_runtime::BpfRuntime;
+use super::bpf_runtime::BpfRuntime;
+use super::event_handler::EventHandler;
 use crate::error::{EmtError, Result};
-use crate::event_handler::EventHandler;
 use crate::models::{Event, Page};
 
 /// Tracer is responsible for monitoring memory events in a target process using eBPF.

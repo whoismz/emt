@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let bpf_src = Path::new("src/bpf/memory_tracer.bpf.c");
-    let vmlinux_path = Path::new("src/bpf/vmlinux.h");
+    let bpf_src = Path::new("src/ebpf/bpf/memory_tracer.bpf.c");
+    let vmlinux_path = Path::new("src/ebpf/bpf/vmlinux.h");
 
     // Rerun build if these files change
     println!("cargo:rerun-if-changed={}", bpf_src.display());
