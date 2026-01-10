@@ -1,40 +1,33 @@
-//! Tracked RWX memory regions with W-X cycle support.
+//! Tracked memory regions with W^X enforcement.
 
 use std::time::Instant;
 
-/// Protection flags
 pub const PROT_READ: u64 = 0x1;
 pub const PROT_WRITE: u64 = 0x2;
 pub const PROT_EXEC: u64 = 0x4;
 
-/// State of a tracked RWX region in the W-X cycle
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionState {
-    /// Region has RW permissions (no exec), waiting for execution attempt.
+    /// Region has RW permissions, waiting for execution attempt.
     Writable,
-    /// Region has RX permissions (no write), waiting for write attempt.
+    /// Region has RX permissions, waiting for write attempt.
     Executable,
 }
 
-/// Type of fault detected on a region
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaultType {
-    /// Process attempted to execute code in a non-executable region
     ExecutionAttempt,
-    /// Process attempted to write to a non-writable region
     WriteAttempt,
 }
 
-/// How the region was created
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionSource {
     Mmap,
     Mprotect,
 }
 
-/// Represents a memory region where we control the W-X permissions
 #[derive(Debug, Clone)]
-pub struct RwxRegion {
+pub struct TrackedRegion {
     pub addr: u64,
     pub len: u64,
     pub original_prot: u64,
@@ -42,14 +35,11 @@ pub struct RwxRegion {
     pub state: RegionState,
     pub source: RegionSource,
     pub created_at: Instant,
-    /// Number of times execution was captured (W→X transitions)
     pub exec_capture_count: u32,
-    /// Number of times write was detected (X→W transitions)
     pub write_fault_count: u32,
 }
 
-impl RwxRegion {
-    /// Creates a new tracked region in Writable state (RW, no exec).
+impl TrackedRegion {
     pub fn new(addr: u64, len: u64, original_prot: u64, source: RegionSource) -> Self {
         Self {
             addr,
@@ -89,7 +79,6 @@ impl RwxRegion {
         self.state == RegionState::Executable
     }
 
-    /// Determines the type of fault based on current state.
     pub fn determine_fault_type(&self) -> FaultType {
         match self.state {
             RegionState::Writable => FaultType::ExecutionAttempt,
@@ -98,7 +87,6 @@ impl RwxRegion {
     }
 
     /// Transitions from Writable to Executable state (W→X).
-    /// Returns the new protection flags (RX).
     pub fn transition_to_executable(&mut self) -> u64 {
         self.state = RegionState::Executable;
         self.current_prot = PROT_READ | PROT_EXEC;
@@ -115,7 +103,6 @@ impl RwxRegion {
     }
 
     /// Transitions from Executable to Writable state (X→W).
-    /// Returns the new protection flags (RW).
     pub fn transition_to_writable(&mut self) -> u64 {
         self.state = RegionState::Writable;
         self.current_prot = PROT_READ | PROT_WRITE;
@@ -132,20 +119,19 @@ impl RwxRegion {
     }
 }
 
-/// Collection of tracked RWX regions
 #[derive(Debug, Default)]
-pub struct RwxRegionTracker {
-    regions: Vec<RwxRegion>,
+pub struct RegionTracker {
+    regions: Vec<TrackedRegion>,
 }
 
-impl RwxRegionTracker {
+impl RegionTracker {
     pub fn new() -> Self {
         Self {
             regions: Vec::new(),
         }
     }
 
-    pub fn add(&mut self, region: RwxRegion) {
+    pub fn add(&mut self, region: TrackedRegion) {
         log::debug!(
             "Tracking region: 0x{:x}-0x{:x}, source={:?}",
             region.addr,
@@ -155,21 +141,21 @@ impl RwxRegionTracker {
         self.regions.push(region);
     }
 
-    pub fn find_region(&self, addr: u64) -> Option<&RwxRegion> {
+    pub fn find(&self, addr: u64) -> Option<&TrackedRegion> {
         self.regions.iter().find(|r| r.contains(addr))
     }
 
-    pub fn find_region_mut(&mut self, addr: u64) -> Option<&mut RwxRegion> {
+    pub fn find_mut(&mut self, addr: u64) -> Option<&mut TrackedRegion> {
         self.regions.iter_mut().find(|r| r.contains(addr))
     }
 
-    pub fn find_executable_region_mut(&mut self, addr: u64) -> Option<&mut RwxRegion> {
+    pub fn find_executable_mut(&mut self, addr: u64) -> Option<&mut TrackedRegion> {
         self.regions
             .iter_mut()
             .find(|r| r.contains(addr) && r.is_executable())
     }
 
-    pub fn regions(&self) -> &[RwxRegion] {
+    pub fn regions(&self) -> &[TrackedRegion] {
         &self.regions
     }
 

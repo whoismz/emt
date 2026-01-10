@@ -1,3 +1,5 @@
+//! RWX memory monitor for capturing dynamic code execution.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -10,14 +12,24 @@ use nix::sys::signal::kill;
 use nix::unistd::Pid;
 
 use super::PtraceController;
+use super::controller::MemoryExecEvent;
 use crate::error::{EmtError, Result};
 
-pub use super::controller::MemoryExecEvent;
+pub use super::controller::MemoryExecEvent as ExecEvent;
 
-/// RWX Memory Monitor
+/// Result collected when monitor stops.
+#[derive(Debug, Default)]
+pub struct MonitorResult {
+    /// All captured memory execution events.
+    pub exec_events: Vec<MemoryExecEvent>,
+    /// Errors that occurred during monitoring.
+    pub errors: Vec<String>,
+}
+
+/// RWX memory monitor.
 ///
 /// Monitors a target process for RWX memory operations and captures
-/// dynamic code before it executes.
+/// dynamic code before execution.
 pub struct RwxMonitor {
     target_pid: i32,
     running: Arc<AtomicBool>,
@@ -25,17 +37,8 @@ pub struct RwxMonitor {
     event_rx: Option<Receiver<MemoryExecEvent>>,
 }
 
-/// Result collected when monitor stops
-#[derive(Debug, Default)]
-pub struct MonitorResult {
-    /// All captured memory execution events
-    pub exec_events: Vec<MemoryExecEvent>,
-    /// Any errors that occurred
-    pub errors: Vec<String>,
-}
-
 impl RwxMonitor {
-    /// Creates a new RWX monitor for the given target process.
+    /// Creates a new monitor for the given target process.
     pub fn new(target_pid: i32) -> Self {
         Self {
             target_pid,
@@ -45,43 +48,35 @@ impl RwxMonitor {
         }
     }
 
-    /// Starts the monitor for RWX memory.
+    /// Starts monitoring the target process.
     pub fn start(&mut self) -> Result<()> {
         if self.running.load(Ordering::SeqCst) {
             return Err(EmtError::AlreadyRunning);
         }
 
-        // Verify target process exists
         let pid = Pid::from_raw(self.target_pid);
-        if let Err(err) = kill(pid, None)
-            && err != Errno::EPERM
-        {
-            return Err(EmtError::InvalidPid(self.target_pid));
+        if let Err(err) = kill(pid, None) {
+            if err != Errno::EPERM {
+                return Err(EmtError::InvalidPid(self.target_pid));
+            }
         }
 
-        // Create event channel
         let (event_tx, event_rx) = mpsc::channel();
         self.event_rx = Some(event_rx);
 
         let target_pid = self.target_pid;
         let running = Arc::clone(&self.running);
-
-        // Set running to true BEFORE spawning thread to avoid race condition
         self.running.store(true, Ordering::SeqCst);
 
-        // Synchronization channel for initialization
         let (init_tx, init_rx) = mpsc::channel();
 
-        let handle = thread::spawn(move || {
-            let result = Self::run_monitor(target_pid, running, event_tx, init_tx);
-            result
-        });
+        let handle =
+            thread::spawn(move || Self::run_monitor(target_pid, running, event_tx, init_tx));
 
-        // Wait for initialization result
         match init_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(())) => {
                 self.monitor_thread = Some(handle);
-                info!("RWX monitor started for PID {}", self.target_pid);
+                info!("Monitor started for PID {}", self.target_pid);
                 Ok(())
             }
             Ok(Err(e)) => {
@@ -97,55 +92,53 @@ impl RwxMonitor {
         }
     }
 
-    /// Stops the RWX monitor and returns collected results.
+    /// Stops monitoring and returns collected results.
     pub fn stop(&mut self) -> Result<MonitorResult> {
         if !self.running.load(Ordering::SeqCst) {
             return Ok(MonitorResult::default());
         }
 
-        // Signal stop by setting running to false
         self.running.store(false, Ordering::SeqCst);
 
-        // Wait for thread to finish
         let result = if let Some(handle) = self.monitor_thread.take() {
             match handle.join() {
                 Ok(result) => result,
-                Err(_) => {
-                    return Err(EmtError::ThreadJoinError);
-                }
+                Err(_) => return Err(EmtError::ThreadJoinError),
             }
         } else {
             MonitorResult::default()
         };
 
         self.event_rx = None;
-
         info!(
-            "RWX monitor stopped. Captured {} execution events",
+            "Monitor stopped. Captured {} events",
             result.exec_events.len()
         );
-
         Ok(result)
     }
 
-    /// Returns whether the monitor is currently running.
+    /// Returns whether the monitor is running.
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
 
-    /// Tries to receive the next execution event without blocking.
+    /// Returns the target process ID.
+    pub fn target_pid(&self) -> i32 {
+        self.target_pid
+    }
+
+    /// Tries to receive the next event without blocking.
     pub fn try_recv_event(&self) -> Option<MemoryExecEvent> {
         self.event_rx.as_ref().and_then(|rx| rx.try_recv().ok())
     }
 
-    /// Receives the next execution event, blocking until one is available
+    /// Receives the next event with a timeout.
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<MemoryExecEvent> {
         self.event_rx
             .as_ref()
             .and_then(|rx| rx.recv_timeout(timeout).ok())
     }
 
-    /// Main monitoring loop
     fn run_monitor(
         target_pid: i32,
         running: Arc<AtomicBool>,
@@ -153,11 +146,8 @@ impl RwxMonitor {
         init_tx: Sender<Result<()>>,
     ) -> MonitorResult {
         let mut result = MonitorResult::default();
-
-        // Internal channel for ptrace events
         let (ptrace_tx, ptrace_rx) = mpsc::channel();
 
-        // Start ptrace controller
         let mut ptrace_controller = {
             let mut controller = PtraceController::new(target_pid);
             match controller.start(Some(ptrace_tx)) {
@@ -175,47 +165,32 @@ impl RwxMonitor {
             }
         };
 
-        // Signal successful initialization
         let _ = init_tx.send(Ok(()));
 
-        // Track events received during main loop
         let mut received_events: Vec<MemoryExecEvent> = Vec::new();
 
-        // Main event loop - continues while running is true
         while running.load(Ordering::SeqCst) {
-            // Check for ptrace events
             if let Ok(event) = ptrace_rx.try_recv() {
                 debug!(
-                    "Received execution event at 0x{:x}, {} bytes",
+                    "Captured execution at 0x{:x}, {} bytes",
                     event.addr,
                     event.bytes.len()
                 );
-
-                // Forward to external listener (ignore send errors if channel closed)
                 let _ = event_tx.send(event.clone());
-
-                // Also track locally for result
                 received_events.push(event);
             }
-
-            // Small sleep to avoid busy-waiting
             thread::sleep(Duration::from_millis(10));
         }
 
-        // Add all events received during main loop to result
         result.exec_events = received_events;
 
-        // Cleanup
         match ptrace_controller.stop() {
             Ok(remaining_events) => {
-                // Add any events that weren't received via the channel
                 for event in remaining_events {
-                    // Check if we already have this event (by address and capture sequence)
                     let already_have = result.exec_events.iter().any(|e| {
                         e.addr == event.addr && e.capture_sequence == event.capture_sequence
                     });
                     if !already_have {
-                        // Forward to external listener if channel still open
                         let _ = event_tx.send(event.clone());
                         result.exec_events.push(event);
                     }
@@ -230,11 +205,6 @@ impl RwxMonitor {
 
         result
     }
-
-    /// Returns the target process ID.
-    pub fn target_pid(&self) -> i32 {
-        self.target_pid
-    }
 }
 
 impl Drop for RwxMonitor {
@@ -245,7 +215,7 @@ impl Drop for RwxMonitor {
     }
 }
 
-/// Builder for RwxMonitor with fluent API
+/// Builder for RwxMonitor.
 pub struct RwxMonitorBuilder {
     target_pid: i32,
 }
@@ -256,7 +226,7 @@ impl RwxMonitorBuilder {
         Self { target_pid }
     }
 
-    /// Builds the RwxMonitor.
+    /// Builds the monitor.
     pub fn build(self) -> RwxMonitor {
         RwxMonitor::new(self.target_pid)
     }

@@ -1,4 +1,4 @@
-//! Main ptrace controller for RWX memory monitoring.
+//! Ptrace controller for RWX memory monitoring.
 
 use std::collections::HashMap;
 use std::io;
@@ -13,48 +13,38 @@ use libc::{
     PTRACE_DETACH, PTRACE_GETREGS, PTRACE_GETSIGINFO, PTRACE_O_TRACESYSGOOD, PTRACE_SETOPTIONS,
     PTRACE_SETREGS, PTRACE_SYSCALL, c_int, c_void, pid_t, siginfo_t, user_regs_struct,
 };
-
-const SEGV_ACCERR: i32 = 2; // seems not in libc crate
 use nix::sys::ptrace;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
 
-use super::remote_syscall::{RegisterSnapshot, RemoteSyscall};
-use super::rwx_region::{
-    FaultType, PROT_EXEC, PROT_READ, PROT_WRITE, RegionSource, RwxRegion, RwxRegionTracker,
+use super::region::{
+    FaultType, PROT_EXEC, PROT_READ, PROT_WRITE, RegionSource, RegionTracker, TrackedRegion,
 };
+use super::remote_syscall::{RegisterSnapshot, RemoteSyscall};
 use crate::error::{EmtError, Result};
 
-/// x86_64 syscall numbers
+const SEGV_ACCERR: i32 = 2;
+
 mod syscall_nr {
     pub const MMAP: u64 = 9;
     pub const MPROTECT: u64 = 10;
     pub const MUNMAP: u64 = 11;
 }
 
-/// Represents a memory execution event captured when the target attempts
-/// to execute code in a region where we stripped execute permission.
+/// Memory execution event captured when the target attempts to execute code.
 #[derive(Debug, Clone)]
 pub struct MemoryExecEvent {
-    /// Address of the faulting region
     pub addr: u64,
-    /// Length of the region in bytes
     pub len: u64,
-    /// Full memory content of the region at the time of execution attempt
     pub bytes: Vec<u8>,
-    /// Register snapshot at the time of the fault
     pub registers: RegisterSnapshot,
-    /// Timestamp when the event was captured
     pub timestamp: SystemTime,
-    /// The instruction pointer that triggered the fault
     pub fault_addr: u64,
-    /// Capture sequence number for this region
     pub capture_sequence: u32,
 }
 
 impl MemoryExecEvent {
-    /// Creates a new MemoryExecEvent
     pub fn new(
         addr: u64,
         len: u64,
@@ -75,43 +65,29 @@ impl MemoryExecEvent {
     }
 }
 
-/// Result of handling a SIGSEGV signal
 enum SigsegvResult {
-    /// We handled the fault and captured memory (W→X transition)
     ExecutionCaptured(MemoryExecEvent),
-    /// We handled the fault but no capture needed (X→W transition)
     WriteHandled,
-    /// Not our fault - signal should be delivered to the process
     NotOurs,
 }
 
-/// State during syscall interception (between enter and exit)
 #[derive(Debug, Clone)]
 struct PendingSyscall {
-    /// Syscall number
     nr: u64,
-    /// For mmap: length argument
     len: u64,
-    /// Original protection flags before we modified them
     orig_prot: u64,
-    /// Whether we modified the syscall
     modified: bool,
 }
 
-/// Controller for ptrace-based RWX memory monitoring.
+/// Ptrace-based RWX memory monitoring controller.
 pub struct PtraceController {
-    /// Target process ID
     target_pid: pid_t,
-    /// Whether the controller is attached and running
     is_attached: Arc<AtomicBool>,
-    /// Thread handle for the monitoring thread
     thread_handle: Option<JoinHandle<Vec<MemoryExecEvent>>>,
-    /// Flag to signal the monitoring thread to stop
     stop_flag: Arc<AtomicBool>,
 }
 
 impl PtraceController {
-    /// Creates a new PtraceController for the given target PID.
     pub fn new(target_pid: pid_t) -> Self {
         Self {
             target_pid,
@@ -121,7 +97,6 @@ impl PtraceController {
         }
     }
 
-    /// Attaches to the target process and starts monitoring.
     pub fn start(&mut self, event_tx: Option<Sender<MemoryExecEvent>>) -> Result<()> {
         if self.is_attached.load(Ordering::SeqCst) {
             return Err(EmtError::AlreadyRunning);
@@ -131,14 +106,12 @@ impl PtraceController {
         let stop_flag = Arc::clone(&self.stop_flag);
         stop_flag.store(false, Ordering::SeqCst);
 
-        // Channel to receive initialization result
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let is_attached = Arc::new(AtomicBool::new(false));
         let is_attached_clone = Arc::clone(&is_attached);
 
         let handle = thread::spawn(move || {
             let mut events = Vec::new();
-
             let result = Self::run_monitor(
                 pid,
                 &stop_flag,
@@ -147,18 +120,13 @@ impl PtraceController {
                 init_tx,
                 &is_attached_clone,
             );
-
-            // Clear attached flag when monitor exits (target exited or error)
             is_attached_clone.store(false, Ordering::SeqCst);
-
             if let Err(e) = result {
-                log::debug!("Monitor exited with error: {:?}", e);
+                log::debug!("Monitor exited: {:?}", e);
             }
-
             events
         });
 
-        // Wait for initialization
         match init_rx.recv() {
             Ok(Ok(())) => {
                 self.is_attached = is_attached;
@@ -176,8 +144,6 @@ impl PtraceController {
         }
     }
 
-    /// Stops monitoring and detaches from the target process.
-    /// Returns all captured MemoryExecEvent.
     pub fn stop(&mut self) -> Result<Vec<MemoryExecEvent>> {
         if !self.is_attached.load(Ordering::SeqCst) {
             return Ok(Vec::new());
@@ -195,12 +161,10 @@ impl PtraceController {
         Ok(events)
     }
 
-    /// Returns whether the controller is currently attached and running
     pub fn is_running(&self) -> bool {
         self.is_attached.load(Ordering::SeqCst)
     }
 
-    /// Main monitoring loop
     fn run_monitor(
         pid: pid_t,
         stop_flag: &Arc<AtomicBool>,
@@ -211,14 +175,12 @@ impl PtraceController {
     ) -> Result<()> {
         let nix_pid = Pid::from_raw(pid);
 
-        // Attach to target process
         if let Err(e) = ptrace::attach(nix_pid) {
             let msg = format!("Failed to attach to PID {}: {}", pid, e);
             let _ = init_tx.send(Err(EmtError::PtraceError(msg.clone())));
             return Err(EmtError::PtraceError(msg));
         }
 
-        // Wait for the process to stop after attach
         match waitpid(nix_pid, None) {
             Ok(WaitStatus::Stopped(_, Signal::SIGSTOP)) => {}
             Ok(status) => {
@@ -233,17 +195,12 @@ impl PtraceController {
             }
         }
 
-        // Set ptrace options to distinguish syscall stops from signal stops
         Self::set_options(pid)?;
-
-        // Signal successful initialization
         is_attached.store(true, Ordering::SeqCst);
         let _ = init_tx.send(Ok(()));
-
-        // Continue with syscall tracing
         Self::ptrace_syscall(pid, None)?;
 
-        let mut tracker = RwxRegionTracker::new();
+        let mut tracker = RegionTracker::new();
         let mut pending_syscalls: HashMap<pid_t, PendingSyscall> = HashMap::new();
         let mut in_syscall = false;
         let remote = RemoteSyscall::new(pid);
@@ -254,33 +211,23 @@ impl PtraceController {
                 break;
             }
 
-            // Wait for next event with timeout-ish behavior using WNOHANG
             let status = match waitpid(nix_pid, Some(WaitPidFlag::__WALL)) {
                 Ok(status) => status,
-                Err(nix::errno::Errno::ECHILD) => {
-                    // Process exited
-                    break;
-                }
-                Err(e) => {
-                    return Err(EmtError::PtraceError(format!("waitpid failed: {}", e)));
-                }
+                Err(nix::errno::Errno::ECHILD) => break,
+                Err(e) => return Err(EmtError::PtraceError(format!("waitpid failed: {}", e))),
             };
 
             match status {
                 WaitStatus::Exited(_, code) => {
-                    log::debug!("Target process exited with code {}", code);
+                    log::debug!("Target exited with code {}", code);
                     break;
                 }
-
                 WaitStatus::Signaled(_, sig, _) => {
-                    log::debug!("Target process killed by signal {:?}", sig);
+                    log::debug!("Target killed by signal {:?}", sig);
                     break;
                 }
-
                 WaitStatus::PtraceSyscall(_) => {
-                    // Syscall stop - alternates between enter and exit
                     if in_syscall {
-                        // Syscall exit
                         Self::handle_syscall_exit(
                             pid,
                             &remote,
@@ -289,7 +236,6 @@ impl PtraceController {
                         )?;
                         in_syscall = false;
                     } else {
-                        // Syscall enter
                         Self::handle_syscall_enter(
                             pid,
                             &remote,
@@ -300,38 +246,27 @@ impl PtraceController {
                     }
                     Self::ptrace_syscall(pid, None)?;
                 }
-
                 WaitStatus::Stopped(_, Signal::SIGSEGV) => {
-                    // Check if this is a SEGV_ACCERR from our modified region
                     match Self::handle_sigsegv(pid, &remote, &mut tracker)? {
                         SigsegvResult::ExecutionCaptured(event) => {
-                            // W→X: Execution attempt captured
                             if let Some(ref tx) = event_tx {
                                 let _ = tx.send(event.clone());
                             }
                             events.push(event);
-                            // Resume without delivering the signal
                             Self::ptrace_syscall(pid, None)?;
                         }
                         SigsegvResult::WriteHandled => {
-                            // X→W: Write attempt handled, no capture
-                            // Resume without delivering the signal
                             Self::ptrace_syscall(pid, None)?;
                         }
                         SigsegvResult::NotOurs => {
-                            // Not our fault, deliver the signal to the process
                             Self::ptrace_syscall(pid, Some(Signal::SIGSEGV))?;
                         }
                     }
                 }
-
                 WaitStatus::Stopped(_, sig) => {
-                    // Other signal - deliver it
                     Self::ptrace_syscall(pid, Some(sig))?;
                 }
-
                 _ => {
-                    // Other status, continue
                     Self::ptrace_syscall(pid, None)?;
                 }
             }
@@ -340,7 +275,6 @@ impl PtraceController {
         Ok(())
     }
 
-    /// Sets ptrace options for syscall tracing
     fn set_options(pid: pid_t) -> Result<()> {
         let ret = unsafe {
             libc::ptrace(
@@ -350,21 +284,17 @@ impl PtraceController {
                 PTRACE_O_TRACESYSGOOD as *mut c_void,
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_SETOPTIONS failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(())
     }
 
-    /// Continues the traced process with PTRACE_SYSCALL
     fn ptrace_syscall(pid: pid_t, sig: Option<Signal>) -> Result<()> {
         let sig_num = sig.map(|s| s as c_int).unwrap_or(0);
-
         let ret = unsafe {
             libc::ptrace(
                 PTRACE_SYSCALL,
@@ -373,18 +303,15 @@ impl PtraceController {
                 sig_num as *mut c_void,
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_SYSCALL failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(())
     }
 
-    /// Detaches from the traced process
     fn ptrace_detach(pid: pid_t) -> Result<()> {
         let ret = unsafe {
             libc::ptrace(
@@ -394,21 +321,17 @@ impl PtraceController {
                 std::ptr::null_mut::<c_void>(),
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_DETACH failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(())
     }
 
-    /// Gets registers from the traced process
     fn get_regs(pid: pid_t) -> Result<user_regs_struct> {
         let mut regs: user_regs_struct = unsafe { mem::zeroed() };
-
         let ret = unsafe {
             libc::ptrace(
                 PTRACE_GETREGS,
@@ -417,18 +340,15 @@ impl PtraceController {
                 &mut regs as *mut _ as *mut c_void,
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_GETREGS failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(regs)
     }
 
-    /// Sets registers in the traced process
     fn set_regs(pid: pid_t, regs: &user_regs_struct) -> Result<()> {
         let ret = unsafe {
             libc::ptrace(
@@ -438,21 +358,17 @@ impl PtraceController {
                 regs as *const _ as *const c_void,
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_SETREGS failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(())
     }
 
-    /// Gets signal information
     fn get_siginfo(pid: pid_t) -> Result<siginfo_t> {
         let mut siginfo: siginfo_t = unsafe { mem::zeroed() };
-
         let ret = unsafe {
             libc::ptrace(
                 PTRACE_GETSIGINFO,
@@ -461,37 +377,29 @@ impl PtraceController {
                 &mut siginfo as *mut _ as *mut c_void,
             )
         };
-
         if ret == -1 {
             return Err(EmtError::PtraceError(format!(
                 "PTRACE_GETSIGINFO failed: {}",
                 io::Error::last_os_error()
             )));
         }
-
         Ok(siginfo)
     }
 
-    /// Handles syscall entry - checks for mmap/mprotect with RWX and modifies to RW
     fn handle_syscall_enter(
         pid: pid_t,
         _remote: &RemoteSyscall,
-        tracker: &mut RwxRegionTracker,
+        tracker: &mut RegionTracker,
         pending: &mut HashMap<pid_t, PendingSyscall>,
     ) -> Result<()> {
         let regs = Self::get_regs(pid)?;
-
-        // orig_rax contains the syscall number
         let syscall_nr = regs.orig_rax;
 
         match syscall_nr {
-            // mmap(addr, length, prot, flags, fd, offset)
             syscall_nr::MMAP => {
-                // rdi=addr, rsi=len, rdx=prot, r10=flags, r8=fd, r9=offset
                 let len = regs.rsi;
                 let prot = regs.rdx;
 
-                // Check if it is RWX
                 if (prot & PROT_READ) != 0 && (prot & PROT_WRITE) != 0 && (prot & PROT_EXEC) != 0 {
                     log::debug!(
                         "Intercepted mmap with RWX: len=0x{:x}, prot=0x{:x}",
@@ -499,12 +407,10 @@ impl PtraceController {
                         prot
                     );
 
-                    // Modify prot to remove EXEC
                     let mut new_regs = regs;
                     new_regs.rdx = prot & !PROT_EXEC;
                     Self::set_regs(pid, &new_regs)?;
 
-                    // Track this pending syscall
                     pending.insert(
                         pid,
                         PendingSyscall {
@@ -516,11 +422,7 @@ impl PtraceController {
                     );
                 }
             }
-
-            // mprotect(addr, len, prot)
             syscall_nr::MPROTECT => {
-                // mprotect(addr, len, prot)
-                // rdi=addr, rsi=len, rdx=prot
                 let addr = regs.rdi;
                 let len = regs.rsi;
                 let prot = regs.rdx;
@@ -528,81 +430,49 @@ impl PtraceController {
                 let has_write = (prot & PROT_WRITE) != 0;
                 let has_exec = (prot & PROT_EXEC) != 0;
 
-                // For true W-X cycle: we control permissions via SIGSEGV, not mprotect
-                // But we still need to intercept new RWX requests
                 if has_write && has_exec {
-                    // Check if we already track this region
-                    if tracker.find_region(addr).is_some() {
-                        log::debug!(
-                            "mprotect on tracked region: addr=0x{:x}, prot=0x{:x} - ignoring (we control perms)",
-                            addr,
-                            prot
-                        );
-                        // Let it through but don't modify - we control permissions via SIGSEGV
-                        // Actually, we should block the exec bit
-                        let mut new_regs = regs;
-                        new_regs.rdx = prot & !PROT_EXEC;
-                        Self::set_regs(pid, &new_regs)?;
+                    log::debug!(
+                        "Intercepted mprotect with RWX: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
+                        addr,
+                        len,
+                        prot
+                    );
 
-                        pending.insert(
-                            pid,
-                            PendingSyscall {
-                                nr: syscall_nr::MPROTECT,
-                                len,
-                                orig_prot: prot,
-                                modified: true,
-                            },
-                        );
-                    } else {
-                        // New RWX region
-                        log::debug!(
-                            "Intercepted mprotect with RWX: addr=0x{:x}, len=0x{:x}, prot=0x{:x}",
-                            addr,
-                            len,
-                            prot
-                        );
+                    let mut new_regs = regs;
+                    new_regs.rdx = prot & !PROT_EXEC;
+                    Self::set_regs(pid, &new_regs)?;
 
-                        // Modify prot to remove EXEC - start in Writable state
-                        let mut new_regs = regs;
-                        new_regs.rdx = prot & !PROT_EXEC;
-                        Self::set_regs(pid, &new_regs)?;
-
-                        let region = RwxRegion::from_mprotect(addr, len, prot);
+                    if tracker.find(addr).is_none() {
+                        let region = TrackedRegion::from_mprotect(addr, len, prot);
                         tracker.add(region);
-
-                        pending.insert(
-                            pid,
-                            PendingSyscall {
-                                nr: syscall_nr::MPROTECT,
-                                len,
-                                orig_prot: prot,
-                                modified: true,
-                            },
-                        );
                     }
+
+                    pending.insert(
+                        pid,
+                        PendingSyscall {
+                            nr: syscall_nr::MPROTECT,
+                            len,
+                            orig_prot: prot,
+                            modified: true,
+                        },
+                    );
                 }
             }
-
-            // munmap(addr, len)
             syscall_nr::MUNMAP => {
                 let addr = regs.rdi;
                 let len = regs.rsi;
-
-                // Remove any tracked regions that overlap
                 tracker.remove_overlapping(addr, len);
             }
-
             _ => {}
         }
 
         Ok(())
     }
 
-    /// Handles syscall exit - records the actual mmap address
     fn handle_syscall_exit(
         pid: pid_t,
         _remote: &RemoteSyscall,
-        tracker: &mut RwxRegionTracker,
+        tracker: &mut RegionTracker,
         pending: &mut HashMap<pid_t, PendingSyscall>,
     ) -> Result<()> {
         let regs = Self::get_regs(pid)?;
@@ -615,16 +485,11 @@ impl PtraceController {
 
             match syscall.nr {
                 syscall_nr::MMAP => {
-                    // Check if mmap succeeded
                     if retval >= 0 || (retval as u64) < 0xfffffffffffff000 {
                         let addr = retval as u64;
-                        log::debug!(
-                            "mmap returned addr=0x{:x}, tracking RW region (EXEC stripped)",
-                            addr
-                        );
+                        log::debug!("mmap returned addr=0x{:x}, tracking region", addr);
 
-                        // Now we have the actual address, create the region
-                        let region = RwxRegion::new(
+                        let region = TrackedRegion::new(
                             addr,
                             syscall.len,
                             syscall.orig_prot,
@@ -633,16 +498,13 @@ impl PtraceController {
                         tracker.add(region);
                     }
                 }
-
                 syscall_nr::MPROTECT => {
-                    // Check if mprotect succeeded
                     if retval == 0 {
-                        log::debug!("mprotect succeeded, region now RW (EXEC stripped)");
+                        log::debug!("mprotect succeeded");
                     } else {
-                        log::warn!("mprotect failed with error {}", retval);
+                        log::warn!("mprotect failed: {}", retval);
                     }
                 }
-
                 _ => {}
             }
         }
@@ -650,28 +512,21 @@ impl PtraceController {
         Ok(())
     }
 
-    /// Handles SIGSEGV - implements the true W-X cycle.
-    ///
-    /// - If region is Writable (RW): this is an execution attempt → capture memory, switch to RX
-    /// - If region is Executable (RX): this is a write attempt → switch to RW (no capture)
     fn handle_sigsegv(
         pid: pid_t,
         remote: &RemoteSyscall,
-        tracker: &mut RwxRegionTracker,
+        tracker: &mut RegionTracker,
     ) -> Result<SigsegvResult> {
         let siginfo = Self::get_siginfo(pid)?;
 
-        // Check if this is SEGV_ACCERR (permission denied, not unmapped page)
-        let si_code = siginfo.si_code;
-        if si_code != SEGV_ACCERR {
+        if siginfo.si_code != SEGV_ACCERR {
             log::debug!(
-                "SIGSEGV with si_code {} (not SEGV_ACCERR), passing through",
-                si_code
+                "SIGSEGV si_code {} (not SEGV_ACCERR), passing through",
+                siginfo.si_code
             );
             return Ok(SigsegvResult::NotOurs);
         }
 
-        // Get the faulting address and current RIP
         let fault_addr = unsafe { siginfo.si_addr() as u64 };
         let current_regs = Self::get_regs(pid)?;
         let rip = current_regs.rip;
@@ -682,56 +537,40 @@ impl PtraceController {
             rip
         );
 
-        // Find the region - check both fault_addr and RIP
-        // We need to find the address first to avoid borrow issues
-        let region_addr_found = tracker
-            .find_region(fault_addr)
+        let region_addr = tracker
+            .find(fault_addr)
             .map(|r| r.addr)
-            .or_else(|| tracker.find_region(rip).map(|r| r.addr));
+            .or_else(|| tracker.find(rip).map(|r| r.addr));
 
-        let region_start_addr = match region_addr_found {
+        let region_start = match region_addr {
             Some(addr) => addr,
             None => {
-                log::debug!(
-                    "Fault address 0x{:x} not in tracked regions, passing through",
-                    fault_addr
-                );
+                log::debug!("Fault address 0x{:x} not in tracked regions", fault_addr);
                 return Ok(SigsegvResult::NotOurs);
             }
         };
 
-        // Now get mutable reference using the found address
-        let region = tracker.find_region_mut(region_start_addr).unwrap();
-
+        let region = tracker.find_mut(region_start).unwrap();
         let region_addr = region.addr;
         let region_len = region.len;
         let fault_type = region.determine_fault_type();
 
         match fault_type {
             FaultType::ExecutionAttempt => {
-                // Region is Writable (RW), process tried to execute
-                // → Capture memory, switch to Executable (RX)
                 let capture_seq = region.exec_capture_count + 1;
-
                 log::info!(
-                    "W→X: Execution attempt at 0x{:x} in region 0x{:x}-0x{:x} (capture #{})",
+                    "W→X: Execution at 0x{:x} in region 0x{:x}-0x{:x} (capture #{})",
                     fault_addr,
                     region_addr,
                     region_addr + region_len,
                     capture_seq
                 );
 
-                // Get register snapshot
                 let regs = remote.get_registers()?;
                 let reg_snapshot = RegisterSnapshot::from(regs);
-
-                // Dump memory content
                 let bytes = remote.read_memory(region_addr, region_len as usize)?;
-
-                // Transition to Executable state and get new protection
                 let new_prot = region.transition_to_executable();
 
-                // Create the event
                 let event = MemoryExecEvent::new(
                     region_addr,
                     region_len,
@@ -741,48 +580,32 @@ impl PtraceController {
                     capture_seq,
                 );
 
-                // Inject mprotect to switch to RX (no write)
                 let result = remote.inject_mprotect(region_addr, region_len, new_prot)?;
                 if result.success {
-                    log::debug!(
-                        "Switched region 0x{:x}-0x{:x} to RX (executable, not writable)",
-                        region_addr,
-                        region_addr + region_len
-                    );
+                    log::debug!("Switched region 0x{:x} to RX", region_addr);
                 } else {
-                    log::error!("Failed to switch to RX: retval={}", result.retval);
+                    log::error!("Failed to switch to RX: {}", result.retval);
                 }
 
                 Ok(SigsegvResult::ExecutionCaptured(event))
             }
-
             FaultType::WriteAttempt => {
-                // Region is Executable (RX), process tried to write
-                // → Switch to Writable (RW), no memory capture
                 log::info!(
-                    "X→W: Write attempt at 0x{:x} in region 0x{:x}-0x{:x} (write fault #{})",
+                    "X→W: Write at 0x{:x} in region 0x{:x}-0x{:x} (write #{})",
                     fault_addr,
                     region_addr,
                     region_addr + region_len,
                     region.write_fault_count + 1
                 );
 
-                // Transition to Writable state and get new protection
                 let new_prot = region.transition_to_writable();
-
-                // Inject mprotect to switch to RW (no exec)
                 let result = remote.inject_mprotect(region_addr, region_len, new_prot)?;
                 if result.success {
-                    log::debug!(
-                        "Switched region 0x{:x}-0x{:x} to RW (writable, not executable)",
-                        region_addr,
-                        region_addr + region_len
-                    );
+                    log::debug!("Switched region 0x{:x} to RW", region_addr);
                 } else {
-                    log::error!("Failed to switch to RW: retval={}", result.retval);
+                    log::error!("Failed to switch to RW: {}", result.retval);
                 }
 
-                // No event for write attempts - only capture on execution
                 Ok(SigsegvResult::WriteHandled)
             }
         }
