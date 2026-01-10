@@ -128,6 +128,8 @@ Content: 43 79 63 6c 65 20 32 20 2d 20 50 52 45 2d 50 52 ...
 
 - eBPF: see [ebpf.md](./docs/ebpf.md)
 
+- ptrace: see [ptrace.md](./docs/ptrace.md)
+
 - Testing: see [testing.md](./docs/testing.md)
 
 - CI: see [CI.md](./docs/CI.md)
