@@ -1,6 +1,6 @@
-# Ptrace-based Monitoring
+# Ptrace-based Tracing
 
-This document describes an approach to dynamic code analysis that leverages the Linux `ptrace(2)` system call interface in conjunction with controlled memory permission manipulation. The technique implements a **Write-XOR-Execute (W⊕X) enforcement mechanism** that intercepts RWX (Read-Write-Execute) memory allocations and uses deliberate permission-induced faults to capture executable code at the precise moment of execution transition.
+This document describes an approach to dynamic code analysis that leverages the Linux [`ptrace(2)`](https://man7.org/linux/man-pages/man2/ptrace.2.html) system call interface in conjunction with controlled memory permission manipulation. The technique implements a Write-XOR-Execute (W^X) enforcement mechanism that intercepts RWX (Read-Write-Execute) memory allocations and uses deliberate permission-induced faults to capture executable code at the precise moment of execution transition.
 
 ![ptrace](./images/ptrace.svg)
 
