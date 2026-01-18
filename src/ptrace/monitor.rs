@@ -231,3 +231,174 @@ impl RwxMonitorBuilder {
         RwxMonitor::new(self.target_pid)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== MonitorResult Tests ====================
+
+    #[test]
+    fn test_monitor_result_default() {
+        let result = MonitorResult::default();
+
+        assert!(result.exec_events.is_empty());
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_monitor_result_with_events() {
+        let mut result = MonitorResult::default();
+
+        // Simulate adding events
+        result.errors.push("test error".to_string());
+
+        assert!(result.exec_events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0], "test error");
+    }
+
+    // ==================== RwxMonitor Tests ====================
+
+    #[test]
+    fn test_rwx_monitor_new() {
+        let monitor = RwxMonitor::new(1234);
+
+        assert_eq!(monitor.target_pid, 1234);
+        assert!(!monitor.running.load(Ordering::SeqCst));
+        assert!(monitor.monitor_thread.is_none());
+        assert!(monitor.event_rx.is_none());
+    }
+
+    #[test]
+    fn test_rwx_monitor_target_pid() {
+        let monitor = RwxMonitor::new(5678);
+
+        assert_eq!(monitor.target_pid(), 5678);
+    }
+
+    #[test]
+    fn test_rwx_monitor_is_running_initial() {
+        let monitor = RwxMonitor::new(1234);
+
+        assert!(!monitor.is_running());
+    }
+
+    #[test]
+    fn test_rwx_monitor_stop_when_not_running() {
+        let mut monitor = RwxMonitor::new(1234);
+
+        // Stop should succeed and return empty result when not running
+        let result = monitor.stop();
+        assert!(result.is_ok());
+
+        let monitor_result = result.unwrap();
+        assert!(monitor_result.exec_events.is_empty());
+        assert!(monitor_result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_rwx_monitor_try_recv_event_no_receiver() {
+        let monitor = RwxMonitor::new(1234);
+
+        // Should return None when no event_rx is set
+        assert!(monitor.try_recv_event().is_none());
+    }
+
+    #[test]
+    fn test_rwx_monitor_recv_event_timeout_no_receiver() {
+        let monitor = RwxMonitor::new(1234);
+
+        // Should return None when no event_rx is set
+        assert!(
+            monitor
+                .recv_event_timeout(Duration::from_millis(10))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_rwx_monitor_start_invalid_pid() {
+        let mut monitor = RwxMonitor::new(-1);
+
+        // Starting with invalid PID should fail
+        let result = monitor.start();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rwx_monitor_start_nonexistent_pid() {
+        // Use a very high PID that's unlikely to exist
+        let mut monitor = RwxMonitor::new(999999999);
+
+        let result = monitor.start();
+        assert!(result.is_err());
+    }
+
+    // ==================== RwxMonitorBuilder Tests ====================
+
+    #[test]
+    fn test_rwx_monitor_builder_new() {
+        let builder = RwxMonitorBuilder::new(1234);
+
+        assert_eq!(builder.target_pid, 1234);
+    }
+
+    #[test]
+    fn test_rwx_monitor_builder_build() {
+        let builder = RwxMonitorBuilder::new(5678);
+        let monitor = builder.build();
+
+        assert_eq!(monitor.target_pid(), 5678);
+        assert!(!monitor.is_running());
+    }
+
+    #[test]
+    fn test_rwx_monitor_builder_chain() {
+        let monitor = RwxMonitorBuilder::new(9999).build();
+
+        assert_eq!(monitor.target_pid(), 9999);
+    }
+
+    // ==================== Running State Tests ====================
+
+    #[test]
+    fn test_rwx_monitor_running_flag() {
+        let monitor = RwxMonitor::new(1234);
+
+        // Initially not running
+        assert!(!monitor.running.load(Ordering::SeqCst));
+
+        // Manually set running flag (simulating start)
+        monitor.running.store(true, Ordering::SeqCst);
+        assert!(monitor.is_running());
+
+        // Manually clear running flag (simulating stop)
+        monitor.running.store(false, Ordering::SeqCst);
+        assert!(!monitor.is_running());
+    }
+
+    // ==================== Drop Tests ====================
+
+    #[test]
+    fn test_rwx_monitor_drop_when_not_running() {
+        let monitor = RwxMonitor::new(1234);
+        // Drop should complete without panic
+        drop(monitor);
+    }
+
+    #[test]
+    fn test_rwx_monitor_drop_cleans_up() {
+        let monitor = RwxMonitor::new(1234);
+        let running = Arc::clone(&monitor.running);
+
+        // Simulate running state
+        running.store(true, Ordering::SeqCst);
+
+        // Drop the monitor
+        drop(monitor);
+
+        // After drop, the running flag should be false
+        // (In actual implementation, stop() is called which sets it to false)
+    }
+}

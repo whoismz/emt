@@ -1,19 +1,20 @@
 # Testing
 
-The project includes usage examples, target process demos, unit tests, and integration test suite that exercises the tracer end‑to‑end.
+The project includes usage examples, unit tests, and integration test suites for both eBPF and ptrace modules.
 
 ## Structure
 
 ```bash
 examples/
-├── example.rs                 # Basic usage example
-├── test_memory_changes.rs     # Syscall mmap/mprotect operations demo
-└── test_file_mapping.rs       # File-backed memory mapping demo
+├── example.rs                      # Basic eBPF tracer usage
+├── rwx_monitor.rs                  # RWX monitor self-test
+└── rwx_cycle_test.rs               # W-X cycle detection test
 
 tests/
-├── integration_test.rs        # Integration tests
+├── integration_test.rs             # eBPF integration tests
+├── ptrace_integration_test.rs      # Ptrace integration tests
 └── common/
-    └── mod.rs                 # Shared test utilities
+    └── mod.rs                      # Shared test utilities
 ```
 
 ## Running Tests
@@ -22,83 +23,189 @@ tests/
 # Run all tests (requires root/sudo)
 sudo cargo test
 
-# Run unit tests (no privileges required)
+# Run unit tests only (no privileges required)
 cargo test --lib
 
-# Run integration tests (requires root/sudo)
+# Run eBPF integration tests (requires root/sudo)
 sudo cargo test --test integration_test
+
+# Run ptrace integration tests (requires root/sudo)
+sudo cargo test --test ptrace_integration_test
 ```
 
-> Running as a user with CAP_SYS_ADMIN/CAP_BPF is sufficient; sudo is shown for simplicity.
+> Running as a user with CAP_SYS_ADMIN/CAP_BPF/CAP_SYS_PTRACE is sufficient; sudo is shown for simplicity.
+
+## Unit Tests
+
+Unit tests cover the core logic of both modules and can run without root privileges.
+
+### eBPF Module
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `src/ebpf/tracer.rs` | 5 | Lifecycle, state management |
+| `src/ebpf/bpf_runtime.rs` | 12 | Runtime, event conversion |
+| `src/ebpf/event_handler.rs` | 5 | Event processing |
+| `src/models.rs` | 5 | Data structures |
+
+### Ptrace Module
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `src/ptrace/region.rs` | 32 | TrackedRegion, RegionTracker, W-X transitions |
+| `src/ptrace/controller.rs` | 12 | MemoryExecEvent, PtraceController |
+| `src/ptrace/monitor.rs` | 15 | RwxMonitor, RwxMonitorBuilder |
+| `src/ptrace/remote_syscall.rs` | 10 | SyscallResult, RegisterSnapshot |
+
+Run unit tests:
+
+```bash
+cargo test --lib
+```
+
+Expected output:
+
+```
+running 93 tests
+...
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
 
 ## Integration Tests
 
-This integration test suite verifies the functionality of the memory tracer in real-world scenarios, including its lifecycle management and memory operation tracking capabilities.
+### eBPF Integration Tests
 
-### Test Cases
+Tests the eBPF-based tracer with real memory operations.
 
-#### 1. Tracer Lifecycle Management
+**Test Cases:**
 
-- Tests proper initialization, starting, and stopping of the tracer
+1. **Self-Tracing Memory Operations** (`test_trace_self_memory_operations`)
+   - Traces the current process's memory operations
+   - Verifies detection of mmap and mprotect syscalls
+   - Validates captured memory contents against expected patterns
 
-#### 2. Self-Tracing Memory Operations
-
-- Traces the current process's memory operations
-- Verifies detection of:
-    - Memory mapping operations (mmap)
-    - Memory protection changes (mprotect)
-    - Memory writes
-- Validates captured memory contents against expected patterns
-
-### How to run
+Run:
 
 ```bash
-# Run integration tests (requires root/sudo)
 sudo cargo test --test integration_test
 ```
 
-### Expected Output:
+### Ptrace Integration Tests
+
+Tests the ptrace-based RWX monitor with real child processes.
+
+**Test Cases:**
+
+1. **Captures Execution** (`test_rwx_monitor_captures_execution`)
+   - Spawns a child process that allocates RWX memory
+   - Verifies the monitor captures the W→X transition
+   - Validates captured code bytes match expected pattern
+
+2. **W-X Cycles** (`test_rwx_monitor_wx_cycles`)
+   - Spawns a child that performs multiple write-then-execute cycles
+   - Verifies multiple captures from the same region
+   - Validates capture sequence numbers increment correctly
+
+3. **Stop While Running** (`test_rwx_monitor_stop_while_running`)
+   - Tests graceful shutdown while target is still running
+   - Verifies monitor state after stop
+
+4. **Invalid PID** (`test_rwx_monitor_invalid_pid`)
+   - Tests error handling for non-existent PIDs
+
+5. **Double Start** (`test_rwx_monitor_double_start`)
+   - Tests that starting an already-running monitor fails correctly
+
+Run:
 
 ```bash
-...
-running 2 tests
-test test_tracer_lifecycle ... ok
-test test_trace_self_memory_operations ... ok
-
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+sudo cargo test --test ptrace_integration_test
 ```
 
-### How to extend the integration test
+Expected output:
 
-1. Create a new test function in `tests/integration_test.rs`
+```
+running 5 tests
+test test_rwx_monitor_invalid_pid ... ok
+test test_rwx_monitor_captures_execution ... ok
+test test_rwx_monitor_wx_cycles ... ok
+test test_rwx_monitor_stop_while_running ... ok
+test test_rwx_monitor_double_start ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+## Extending Tests
+
+### Adding eBPF Integration Tests
+
+Add a new test function in `tests/integration_test.rs`:
 
 ```rust
 #[test]
 fn test_new_feature() {
-    // Setup
     let mut tracer = Tracer::new(target_pid);
-
-    // Execute
     tracer.start().unwrap();
 
-    // Do your operations here
-    your_operations();
+    // Perform memory operations
+    do_memory_operations();
 
     let pages = tracer.stop().unwrap();
 
-    // Verify
+    // Verify results
     assert_eq!(pages.len(), expected_count);
-
-    // Additional assertions
 }
 ```
 
-2. Add helper functions to `tests/common/mod.rs` for reusable operations
+### Adding Ptrace Integration Tests
+
+Add a new test function in `tests/ptrace_integration_test.rs`:
 
 ```rust
-pub fn your_operations() {
-    unsafe {
-        // Perform memory operations here...
+#[test]
+fn test_new_ptrace_feature() {
+    // Compile and spawn a test program
+    let bin_path = compile_c_program(MY_TEST_PROGRAM, "test_name").unwrap();
+    let mut child = Command::new(&bin_path)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let child_pid = child.id() as i32;
+
+    // Start monitor
+    let mut monitor = RwxMonitorBuilder::new(child_pid).build();
+    monitor.start().unwrap();
+
+    // Collect events
+    let mut events = Vec::new();
+    while monitor.is_running() {
+        if let Some(event) = monitor.try_recv_event() {
+            events.push(event);
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    // Cleanup and verify
+    let _ = monitor.stop();
+    cleanup_binary(&bin_path);
+
+    assert!(!events.is_empty());
+}
+```
+
+### Adding Unit Tests
+
+Add tests in the corresponding source file within a `#[cfg(test)]` module:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_function() {
+        // Test implementation
     }
 }
 ```

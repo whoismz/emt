@@ -372,3 +372,206 @@ impl RegisterSnapshot {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== SyscallResult Tests ====================
+
+    #[test]
+    fn test_syscall_result_success() {
+        // Successful return values (0 and positive)
+        let result = SyscallResult::new(0);
+        assert!(result.success);
+        assert_eq!(result.retval, 0);
+
+        let result = SyscallResult::new(42);
+        assert!(result.success);
+        assert_eq!(result.retval, 42);
+
+        // Large positive value (like mmap return address)
+        let result = SyscallResult::new(0x7f0000000000_i64);
+        assert!(result.success);
+    }
+
+    #[test]
+    fn test_syscall_result_error() {
+        // Error return values (-1 to -4095 are errors in Linux)
+        let result = SyscallResult::new(-1); // EPERM
+        assert!(!result.success);
+
+        let result = SyscallResult::new(-2); // ENOENT
+        assert!(!result.success);
+
+        let result = SyscallResult::new(-12); // ENOMEM
+        assert!(!result.success);
+
+        let result = SyscallResult::new(-4095); // Max error value
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn test_syscall_result_boundary() {
+        // -4096 is NOT an error (it's a valid high address)
+        let result = SyscallResult::new(-4096);
+        assert!(result.success);
+
+        // -4095 IS an error
+        let result = SyscallResult::new(-4095);
+        assert!(!result.success);
+
+        // 0 is success
+        let result = SyscallResult::new(0);
+        assert!(result.success);
+    }
+
+    #[test]
+    fn test_syscall_result_as_ptr() {
+        let result = SyscallResult::new(0x7f1234560000_i64);
+        assert_eq!(result.as_ptr(), 0x7f1234560000_u64);
+
+        // Negative value interpreted as unsigned
+        let result = SyscallResult::new(-1);
+        assert_eq!(result.as_ptr(), u64::MAX);
+    }
+
+    // ==================== RegisterSnapshot Tests ====================
+
+    #[test]
+    fn test_register_snapshot_from_user_regs() {
+        let mut regs: user_regs_struct = unsafe { mem::zeroed() };
+        regs.rax = 0x1111;
+        regs.rbx = 0x2222;
+        regs.rcx = 0x3333;
+        regs.rdx = 0x4444;
+        regs.rsi = 0x5555;
+        regs.rdi = 0x6666;
+        regs.rbp = 0x7777;
+        regs.rsp = 0x8888;
+        regs.r8 = 0x9999;
+        regs.r9 = 0xAAAA;
+        regs.r10 = 0xBBBB;
+        regs.r11 = 0xCCCC;
+        regs.r12 = 0xDDDD;
+        regs.r13 = 0xEEEE;
+        regs.r14 = 0xFFFF;
+        regs.r15 = 0x1234;
+        regs.rip = 0x400000;
+        regs.eflags = 0x202;
+        regs.cs = 0x33;
+        regs.ss = 0x2B;
+        regs.fs_base = 0x7f0000000000;
+        regs.gs_base = 0x0;
+
+        let snapshot = RegisterSnapshot::from(regs);
+
+        assert_eq!(snapshot.rax, 0x1111);
+        assert_eq!(snapshot.rbx, 0x2222);
+        assert_eq!(snapshot.rcx, 0x3333);
+        assert_eq!(snapshot.rdx, 0x4444);
+        assert_eq!(snapshot.rsi, 0x5555);
+        assert_eq!(snapshot.rdi, 0x6666);
+        assert_eq!(snapshot.rbp, 0x7777);
+        assert_eq!(snapshot.rsp, 0x8888);
+        assert_eq!(snapshot.r8, 0x9999);
+        assert_eq!(snapshot.r9, 0xAAAA);
+        assert_eq!(snapshot.r10, 0xBBBB);
+        assert_eq!(snapshot.r11, 0xCCCC);
+        assert_eq!(snapshot.r12, 0xDDDD);
+        assert_eq!(snapshot.r13, 0xEEEE);
+        assert_eq!(snapshot.r14, 0xFFFF);
+        assert_eq!(snapshot.r15, 0x1234);
+        assert_eq!(snapshot.rip, 0x400000);
+        assert_eq!(snapshot.eflags, 0x202);
+        assert_eq!(snapshot.cs, 0x33);
+        assert_eq!(snapshot.ss, 0x2B);
+        assert_eq!(snapshot.fs_base, 0x7f0000000000);
+        assert_eq!(snapshot.gs_base, 0x0);
+    }
+
+    #[test]
+    fn test_register_snapshot_format() {
+        let snapshot = RegisterSnapshot {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0x7fffffffe000,
+            rsp: 0x7fffffffd000,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0x401000,
+            eflags: 0x202,
+            cs: 0x33,
+            ss: 0x2B,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        let formatted = snapshot.format();
+
+        assert!(formatted.contains("RIP: 0x0000000000401000"));
+        assert!(formatted.contains("RSP: 0x00007fffffffd000"));
+        assert!(formatted.contains("RBP: 0x00007fffffffe000"));
+        assert!(formatted.contains("EFLAGS: 0x00000202"));
+    }
+
+    #[test]
+    fn test_register_snapshot_clone() {
+        let snapshot = RegisterSnapshot {
+            rax: 0x42,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0x400000,
+            eflags: 0,
+            cs: 0,
+            ss: 0,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        let cloned = snapshot.clone();
+        assert_eq!(cloned.rax, 0x42);
+        assert_eq!(cloned.rip, 0x400000);
+    }
+
+    // ==================== RemoteSyscall Tests ====================
+
+    #[test]
+    fn test_remote_syscall_new() {
+        let remote = RemoteSyscall::new(1234);
+        assert_eq!(remote.pid, Pid::from_raw(1234));
+    }
+
+    // ==================== syscall_nr Constants Tests ====================
+
+    #[test]
+    fn test_syscall_numbers() {
+        // Verify syscall numbers match Linux x86_64 ABI
+        assert_eq!(syscall_nr::MMAP, 9);
+        assert_eq!(syscall_nr::MPROTECT, 10);
+        assert_eq!(syscall_nr::MUNMAP, 11);
+    }
+}

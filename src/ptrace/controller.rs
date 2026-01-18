@@ -619,3 +619,285 @@ impl Drop for PtraceController {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== MemoryExecEvent Tests ====================
+
+    #[test]
+    fn test_memory_exec_event_new() {
+        let regs = RegisterSnapshot {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0x7fffffffd000,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0x401000,
+            eflags: 0x202,
+            cs: 0x33,
+            ss: 0x2b,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        let bytes = vec![0x90, 0x90, 0xc3]; // nop; nop; ret
+        let event = MemoryExecEvent::new(
+            0x1000, // addr
+            0x1000, // len
+            bytes.clone(),
+            regs,
+            0x1000, // fault_addr
+            1,      // capture_sequence
+        );
+
+        assert_eq!(event.addr, 0x1000);
+        assert_eq!(event.len, 0x1000);
+        assert_eq!(event.bytes, bytes);
+        assert_eq!(event.fault_addr, 0x1000);
+        assert_eq!(event.capture_sequence, 1);
+        assert_eq!(event.registers.rip, 0x401000);
+    }
+
+    #[test]
+    fn test_memory_exec_event_capture_sequence() {
+        let regs = RegisterSnapshot {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0,
+            eflags: 0,
+            cs: 0,
+            ss: 0,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        // First capture
+        let event1 = MemoryExecEvent::new(0x1000, 0x1000, vec![], regs.clone(), 0x1000, 1);
+        assert_eq!(event1.capture_sequence, 1);
+
+        // Second capture (W-X cycle)
+        let event2 = MemoryExecEvent::new(0x1000, 0x1000, vec![], regs.clone(), 0x1000, 2);
+        assert_eq!(event2.capture_sequence, 2);
+
+        // Third capture
+        let event3 = MemoryExecEvent::new(0x1000, 0x1000, vec![], regs, 0x1000, 3);
+        assert_eq!(event3.capture_sequence, 3);
+    }
+
+    #[test]
+    fn test_memory_exec_event_clone() {
+        let regs = RegisterSnapshot {
+            rax: 0x42,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0x400000,
+            eflags: 0,
+            cs: 0,
+            ss: 0,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        let bytes = vec![0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3]; // mov eax, 1; ret
+        let event = MemoryExecEvent::new(0x2000, 0x1000, bytes, regs, 0x2000, 1);
+
+        let cloned = event.clone();
+
+        assert_eq!(cloned.addr, event.addr);
+        assert_eq!(cloned.len, event.len);
+        assert_eq!(cloned.bytes, event.bytes);
+        assert_eq!(cloned.fault_addr, event.fault_addr);
+        assert_eq!(cloned.capture_sequence, event.capture_sequence);
+        assert_eq!(cloned.registers.rax, 0x42);
+        assert_eq!(cloned.registers.rip, 0x400000);
+    }
+
+    // ==================== PtraceController Tests ====================
+
+    #[test]
+    fn test_ptrace_controller_new() {
+        let controller = PtraceController::new(1234);
+
+        assert_eq!(controller.target_pid, 1234);
+        assert!(!controller.is_attached.load(Ordering::SeqCst));
+        assert!(controller.thread_handle.is_none());
+        assert!(!controller.stop_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_ptrace_controller_is_running_initial() {
+        let controller = PtraceController::new(1234);
+
+        assert!(!controller.is_running());
+    }
+
+    #[test]
+    fn test_ptrace_controller_stop_when_not_attached() {
+        let mut controller = PtraceController::new(1234);
+
+        // Stop should succeed even when not attached
+        let result = controller.stop();
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // ==================== SigsegvResult Tests ====================
+
+    #[test]
+    fn test_sigsegv_result_variants() {
+        let regs = RegisterSnapshot {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rip: 0,
+            eflags: 0,
+            cs: 0,
+            ss: 0,
+            fs_base: 0,
+            gs_base: 0,
+        };
+
+        let event = MemoryExecEvent::new(0x1000, 0x1000, vec![], regs, 0x1000, 1);
+
+        // Test that we can create each variant
+        let exec_captured = SigsegvResult::ExecutionCaptured(event);
+        let write_handled = SigsegvResult::WriteHandled;
+        let not_ours = SigsegvResult::NotOurs;
+
+        // Pattern matching works
+        match exec_captured {
+            SigsegvResult::ExecutionCaptured(e) => assert_eq!(e.addr, 0x1000),
+            _ => panic!("Expected ExecutionCaptured"),
+        }
+
+        match write_handled {
+            SigsegvResult::WriteHandled => {}
+            _ => panic!("Expected WriteHandled"),
+        }
+
+        match not_ours {
+            SigsegvResult::NotOurs => {}
+            _ => panic!("Expected NotOurs"),
+        }
+    }
+
+    // ==================== PendingSyscall Tests ====================
+
+    #[test]
+    fn test_pending_syscall_creation() {
+        let pending = PendingSyscall {
+            nr: syscall_nr::MMAP,
+            len: 0x1000,
+            orig_prot: 0x7, // RWX
+            modified: true,
+        };
+
+        assert_eq!(pending.nr, 9); // MMAP syscall number
+        assert_eq!(pending.len, 0x1000);
+        assert_eq!(pending.orig_prot, 0x7);
+        assert!(pending.modified);
+    }
+
+    #[test]
+    fn test_pending_syscall_mprotect() {
+        let pending = PendingSyscall {
+            nr: syscall_nr::MPROTECT,
+            len: 0x2000,
+            orig_prot: 0x5, // R-X
+            modified: false,
+        };
+
+        assert_eq!(pending.nr, 10); // MPROTECT syscall number
+        assert_eq!(pending.len, 0x2000);
+        assert_eq!(pending.orig_prot, 0x5);
+        assert!(!pending.modified);
+    }
+
+    #[test]
+    fn test_pending_syscall_clone() {
+        let pending = PendingSyscall {
+            nr: syscall_nr::MMAP,
+            len: 0x4000,
+            orig_prot: 0x7,
+            modified: true,
+        };
+
+        let cloned = pending.clone();
+
+        assert_eq!(cloned.nr, pending.nr);
+        assert_eq!(cloned.len, pending.len);
+        assert_eq!(cloned.orig_prot, pending.orig_prot);
+        assert_eq!(cloned.modified, pending.modified);
+    }
+
+    // ==================== Syscall Number Constants Tests ====================
+
+    #[test]
+    fn test_syscall_numbers() {
+        // Verify syscall numbers match Linux x86_64 ABI
+        assert_eq!(syscall_nr::MMAP, 9);
+        assert_eq!(syscall_nr::MPROTECT, 10);
+        assert_eq!(syscall_nr::MUNMAP, 11);
+    }
+
+    // ==================== SEGV_ACCERR Constant Test ====================
+
+    #[test]
+    fn test_segv_accerr_constant() {
+        // SEGV_ACCERR should be 2 per POSIX/Linux
+        assert_eq!(SEGV_ACCERR, 2);
+    }
+}
