@@ -191,6 +191,8 @@ cargo run --example rwx_cycle_test
 
 - Testing: see [testing.md](./docs/testing.md)
 
+- Benchmarks: see [benchmarks.md](./docs/benchmarks.md)
+
 - CI: see [CI.md](./docs/CI.md)
 
 - Limitations and Future Work: see [limitations_and_future_work.md](./docs/limitations_and_future_work.md)

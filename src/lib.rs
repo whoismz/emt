@@ -11,8 +11,8 @@ pub use ebpf::{BpfRuntime, EventHandler, Tracer};
 pub use models::{Event, EventType, Page};
 
 pub use ptrace::{
-    MemoryExecEvent, MonitorResult, PtraceController, RegionState, RegionTracker, RemoteSyscall,
-    RwxMonitor, RwxMonitorBuilder, TrackedRegion,
+    FaultType, MemoryExecEvent, MonitorResult, PtraceController, RegionSource, RegionState,
+    RegionTracker, RemoteSyscall, RwxMonitor, RwxMonitorBuilder, TrackedRegion,
 };
 
 pub use error::{EmtError, Result};

@@ -7,5 +7,5 @@ pub mod remote_syscall;
 
 pub use controller::{MemoryExecEvent, PtraceController};
 pub use monitor::{MonitorResult, RwxMonitor, RwxMonitorBuilder};
-pub use region::{RegionState, RegionTracker, TrackedRegion};
+pub use region::{FaultType, RegionSource, RegionState, RegionTracker, TrackedRegion};
 pub use remote_syscall::RemoteSyscall;

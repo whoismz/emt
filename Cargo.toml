@@ -21,7 +21,20 @@ features = [
 
 [dev-dependencies]
 env_logger = "0.11"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[test]]
-name = "integration_test"
-path = "tests/integration_test.rs"
+name = "eBPF_integration_test"
+path = "tests/eBPF_integration_test.rs"
+
+[[test]]
+name = "ptrace_integration_test"
+path = "tests/ptrace_integration_test.rs"
+
+[[bench]]
+name = "region_benchmarks"
+harness = false
+
+[[bench]]
+name = "event_benchmarks"
+harness = false

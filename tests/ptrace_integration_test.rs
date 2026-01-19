@@ -8,8 +8,6 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-mod common;
-
 /// C program that performs a simple RWX memory operation.
 /// It allocates RWX memory, writes code, and executes it.
 const SIMPLE_RWX_PROGRAM: &str = r#"
